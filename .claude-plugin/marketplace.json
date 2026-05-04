@@ -1,0 +1,10 @@
+{
+  "name": "personal-skills-marketplace",
+  "description": "Personal Claude Code skills and tools",
+  "plugins": [
+    {
+      "name": "personal-skills",
+      "source": "."
+    }
+  ]
+}

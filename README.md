@@ -8,24 +8,17 @@ A Claude Code plugin with personal skills for everyday development workflows.
 
 Fixes npm package vulnerabilities (CVEs) by identifying affected packages and applying safe version updates through direct dependency updates or npm overrides.
 
-**Usage:**
-
-```
-/personal-skills:npm-vuln-fix PROJ-1234
-```
-
-The skill will:
-
-1. Read the JIRA ticket to extract the CVE, affected package, and safe version
-2. Diagnose whether it's a direct or transitive dependency
-3. Apply the appropriate fix (version bump or npm override)
-4. Verify the CVE is resolved
-
 ## Installation
 
-```
-/install-plugin https://github.com/carlosthe19916/personal-skills
-```
+1. Add the marketplace:
+   ```
+   /plugin marketplace add carlosthe19916/personal-skills
+   ```
+
+2. Install the plugin:
+   ```
+   /plugin install personal-skills@carlosthe19916/personal-skills
+   ```
 
 ## MCP Servers
 
