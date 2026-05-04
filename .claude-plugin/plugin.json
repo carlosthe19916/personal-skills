@@ -1,0 +1,14 @@
+{
+  "name": "personal-skills",
+  "description": "Personal Claude Code skills: npm vulnerability fixes and more",
+  "version": "1.0.0",
+  "author": {
+    "name": "Carlos Feria"
+  },
+  "homepage": "https://github.com/carlosthe19916/personal-skills",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/carlosthe19916/personal-skills.git"
+  },
+  "license": "MIT"
+}
