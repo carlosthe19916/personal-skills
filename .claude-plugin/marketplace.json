@@ -1,9 +1,17 @@
 {
   "name": "personal-skills-marketplace",
   "description": "Personal Claude Code skills and tools",
+  "owner": {
+    "name": "Carlos Feria",
+    "email": "2582866+carlosthe19916@users.noreply.github.com"
+  },
   "plugins": [
     {
       "name": "personal-skills",
+      "description": "Personal Claude Code skills",
+      "author": {
+        "name": "Carlos Feria"
+      },
       "source": "."
     }
   ]
