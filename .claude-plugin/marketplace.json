@@ -12,12 +12,7 @@
       "author": {
         "name": "Carlos Feria"
       },
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/carlosthe19916/personal-skills.git",
-        "path": ".",
-        "ref": "main"
-      }
+      "source": "./plugins/personal-skills"
     }
   ]
 }
