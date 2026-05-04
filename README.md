@@ -17,7 +17,7 @@ Fixes npm package vulnerabilities (CVEs) by identifying affected packages and ap
 
 2. Install the plugin:
    ```
-   /plugin install personal-skills@carlosthe19916/personal-skills
+   /plugin install personal-skills@personal-skills-marketplace
    ```
 
 ## MCP Servers
