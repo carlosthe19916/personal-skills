@@ -1,0 +1,28 @@
+[
+  {
+    "number": 1,
+    "title": "Fix bug",
+    "url": "https://github.com/owner/repo/pull/1",
+    "author": {"login": "alice"},
+    "isDraft": false,
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-01-02T00:00:00Z",
+    "statusCheckRollup": [
+      {"conclusion": "SUCCESS", "status": "COMPLETED"}
+    ],
+    "reviews": [],
+    "labels": [{"name": "bug"}]
+  },
+  {
+    "number": 2,
+    "title": "Draft work",
+    "url": "https://github.com/owner/repo/pull/2",
+    "author": {"login": "bob"},
+    "isDraft": true,
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-01-02T00:00:00Z",
+    "statusCheckRollup": [],
+    "reviews": [{"author": {"login": "carol"}}],
+    "labels": []
+  }
+]

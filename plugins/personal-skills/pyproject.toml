@@ -1,0 +1,13 @@
+[project]
+name = "personal-skills"
+version = "1.4.0"
+description = "Claude Code personal-skills plugin helpers"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "live: live network tests (gh/glab); skipped in CI by default",
+]
+addopts = "-m 'not live'"

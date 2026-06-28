@@ -1,0 +1,28 @@
+[
+  {
+    "iid": 5,
+    "title": "Ready MR",
+    "web_url": "https://gitlab.example.com/group/project/-/merge_requests/5",
+    "author": {"username": "alice"},
+    "draft": false,
+    "work_in_progress": false,
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-02T00:00:00Z",
+    "head_pipeline": {"status": "success"},
+    "approved_by": [{"user": {"username": "bob"}}],
+    "labels": ["bug"]
+  },
+  {
+    "iid": 6,
+    "title": "Draft MR",
+    "web_url": "https://gitlab.example.com/group/project/-/merge_requests/6",
+    "author": {"username": "carol"},
+    "draft": true,
+    "work_in_progress": false,
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-02T00:00:00Z",
+    "head_pipeline": {"status": "running"},
+    "approved_by": [],
+    "labels": []
+  }
+]

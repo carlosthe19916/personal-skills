@@ -1,0 +1,19 @@
+[
+  {
+    "number": 5,
+    "title": "Ready MR",
+    "url": "https://gitlab.example.com/group/project/-/merge_requests/5",
+    "repo": "group/project",
+    "provider": "gitlab",
+    "instance": "gitlab.example.com",
+    "author": "alice",
+    "is_draft": false,
+    "is_automated": false,
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-02T00:00:00Z",
+    "ci_status": "SUCCESS",
+    "reviews": {"count": 1, "has_new_commits": false},
+    "labels": ["bug"],
+    "unresolved_conversations": 0
+  }
+]

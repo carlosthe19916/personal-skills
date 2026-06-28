@@ -50,11 +50,13 @@ Prints a copy-paste `cd` path after checkout.
    ```
 
 3. Prerequisites:
+   - **Python 3.11+** (for `/pr-monitor` and `/pr-checkout` script helpers)
    - [GitHub CLI](https://cli.github.com/) (`gh auth login`) — for GitHub repos
    - [GitLab CLI](https://gitlab.com/gitlab-org/cli/) (`glab auth login`) — for GitLab repos
-   - `jq` (usually preinstalled on Linux; `dnf install jq` on Fedora)
 
    You only need the CLI for providers you configure.
+
+Contributions must pass CI — see the **CI** workflow in the Actions tab (`pytest` under `plugins/personal-skills/`).
 
 ## Updating the plugin
 

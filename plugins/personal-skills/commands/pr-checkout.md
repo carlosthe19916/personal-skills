@@ -3,7 +3,7 @@ name: pr-checkout
 description: Check out a GitHub PR or GitLab MR into a sibling git worktree via git worktree add. Commands: checkout (default), list, remove, help.
 argument-hint: "[help|list|remove] [--force] [path:DIR] [number|url]"
 disable-model-invocation: true
-allowed-tools: Read Bash(git *) Bash(gh *) Bash(glab *) Bash(jq *)
+allowed-tools: Read Bash(git *) Bash(gh *) Bash(glab *) Bash(python3 *)
 ---
 
 # PR Checkout
@@ -80,12 +80,15 @@ Then **stop**.
 
 ## Script discovery
 
+The wrapper delegates to `python3 -m personal_skills.pr_checkout` (stdlib only; no `jq`).
+
 ```shell
 SCRIPT="$(find ~/.claude/plugins/cache/personal-skills-marketplace/personal-skills \
   -path '*/scripts/pr-checkout/pr_worktree.sh' 2>/dev/null | head -1)"
 if [ -z "$SCRIPT" ]; then
   SCRIPT="$HOME/git/personal-skills/plugins/personal-skills/scripts/pr-checkout/pr_worktree.sh"
 fi
+# Equivalent: python3 -m personal_skills.pr_checkout checkout ...
 ```
 
 ## Parse arguments

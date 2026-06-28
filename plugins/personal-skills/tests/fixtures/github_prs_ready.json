@@ -1,0 +1,19 @@
+[
+  {
+    "number": 1,
+    "title": "Fix bug",
+    "url": "https://github.com/owner/repo/pull/1",
+    "repo": "owner/repo",
+    "provider": "github",
+    "instance": null,
+    "author": "alice",
+    "is_draft": false,
+    "is_automated": false,
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-02T00:00:00Z",
+    "ci_status": "SUCCESS",
+    "reviews": {"count": 0, "has_new_commits": false},
+    "labels": ["bug"],
+    "unresolved_conversations": 0
+  }
+]
