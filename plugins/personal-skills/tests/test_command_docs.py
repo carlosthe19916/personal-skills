@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -43,3 +44,24 @@ def test_pr_command_docs_reference_wrappers() -> None:
     monitor = (COMMANDS_DIR / "pr-monitor.md").read_text(encoding="utf-8")
     assert "pr_worktree.sh" in checkout or "personal_skills.pr_checkout" in checkout
     assert "fetch_prs.sh" in monitor or "personal_skills.pr_monitor" in monitor
+
+
+def test_version_consistency() -> None:
+    from personal_skills import __version__
+
+    plugin_json = json.loads(
+        (PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+    )
+    pyproject = (PLUGIN_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version\s*=\s*"([^"]+)"', pyproject, re.MULTILINE)
+    assert match, "pyproject.toml missing version"
+
+    pyproject_version = match.group(1)
+    plugin_version = plugin_json["version"]
+
+    assert __version__ == pyproject_version, (
+        f"__init__.py ({__version__}) != pyproject.toml ({pyproject_version})"
+    )
+    assert __version__ == plugin_version, (
+        f"__init__.py ({__version__}) != plugin.json ({plugin_version})"
+    )

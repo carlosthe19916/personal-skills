@@ -130,11 +130,6 @@ def _restore_head_ref(repo_root: str, ref: str, *, runner: CliRunner) -> None:
     if ref.startswith("refs/heads/"):
         branch = ref.removeprefix("refs/heads/")
         result = runner.run(["git", "-C", repo_root, "switch", branch], check=False)
-    elif ref.startswith("refs/"):
-        result = runner.run(
-            ["git", "-C", repo_root, "checkout", "--detach", ref],
-            check=False,
-        )
     else:
         result = runner.run(
             ["git", "-C", repo_root, "checkout", "--detach", ref],
