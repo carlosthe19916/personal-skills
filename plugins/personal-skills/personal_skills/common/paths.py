@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 from pathlib import Path
 
@@ -18,8 +19,6 @@ __all__ = [
 
 
 def expand_path(path: str) -> str:
-    import os
-
     if path == "~":
         return os.path.expanduser("~")
     if path.startswith("~/"):
