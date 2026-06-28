@@ -116,6 +116,8 @@ When `$ARGUMENTS` contains `help`, print this (adapt examples to the user's conf
 | `/pr-monitor init` | Copy example template to edit manually |
 | `/pr-monitor init org:foo host:gitlab.com group:bar` | Bootstrap config in one step |
 
+**Local checkout:** `/pr-checkout 123` creates `my-app.123` next to your clone — see `/pr-checkout help`.
+
 Config: `~/.config/personal-skills/pr-monitor/sources.yaml` (or `$PR_MONITOR_CONFIG`)
 ```
 
