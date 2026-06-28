@@ -18,6 +18,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     checkout = sub.add_parser("checkout", help="Checkout PR/MR into sibling worktree")
     checkout.add_argument("--force", action="store_true")
+    checkout.add_argument(
+        "--remote",
+        default="origin",
+        help="Git remote to resolve repo identity (default: origin)",
+    )
     checkout.add_argument("target", help="PR/MR number or URL")
 
     list_cmd = sub.add_parser("list", help="List PR/MR worktrees")
@@ -25,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     remove = sub.add_parser("remove", help="Remove worktree and branch")
     remove.add_argument("--force", action="store_true")
+    remove.add_argument(
+        "--remote",
+        default="origin",
+        help="Git remote for provider detection (default: origin)",
+    )
     remove.add_argument("--path", dest="repo_path", default=".")
     remove.add_argument("number")
 
@@ -33,9 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def usage() -> None:
     print(
-        """Usage: pr-checkout checkout [--force] <number-or-url>
+        """Usage: pr-checkout checkout [--force] [--remote NAME] <number-or-url>
        pr-checkout list [--path PATH]
-       pr-checkout remove [--path PATH] <number>
+       pr-checkout remove [--remote NAME] [--path PATH] <number>
 
 Note: remove --force does not delete unrelated directories (safety).
 
@@ -61,7 +71,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "checkout":
-            result = worktree.checkout(args.target, force=args.force)
+            result = worktree.checkout(
+                args.target,
+                force=args.force,
+                remote_name=args.remote,
+            )
             print(
                 f"Worktree ready: {result.worktree_path}  (branch {result.branch})\n\n"
                 f"  {result.cd_command}",
@@ -76,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.number,
                 force=args.force,
                 repo_path=expand_path(args.repo_path),
+                remote_name=args.remote,
             )
             print(json.dumps(data, indent=2))
         else:

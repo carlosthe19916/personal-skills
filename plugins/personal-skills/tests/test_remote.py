@@ -5,6 +5,7 @@ import pytest
 from personal_skills.common.remote import (
     detect_provider,
     github_repo_from_url,
+    github_repo_slug_from_remote_url,
     gitlab_identity_from_url,
     gitlab_host_from_url,
     normalize_gitlab_host,
@@ -58,6 +59,18 @@ def test_detect_provider(url: str, expected: str) -> None:
 )
 def test_github_repo_from_url(url: str, expected: str) -> None:
     assert github_repo_from_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://github.com/owner/repo.git", "owner/repo"),
+        ("git@github.mycompany.com:org/repo.git", "org/repo"),
+        ("git@git.acme.com:org/repo.git", "git.acme.com/org/repo"),
+    ],
+)
+def test_github_repo_slug_from_remote_url(url: str, expected: str) -> None:
+    assert github_repo_slug_from_remote_url(url) == expected
 
 
 @pytest.mark.parametrize(

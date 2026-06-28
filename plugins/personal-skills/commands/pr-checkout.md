@@ -1,7 +1,7 @@
 ---
 name: pr-checkout
 description: Check out a GitHub PR or GitLab MR into a sibling git worktree via git worktree add. Commands: checkout (default), list, remove, help.
-argument-hint: "[help|list|remove] [--force] [path:DIR] [number|url]"
+argument-hint: "[help|list|remove] [--force] [path:DIR] [remote:NAME] [number|url]"
 disable-model-invocation: true
 allowed-tools: Read Bash(git *) Bash(gh *) Bash(glab *) Bash(python3 *)
 ---
@@ -24,7 +24,7 @@ Internal local branches: `pr-{number}` (GitHub) or `mr-{number}` (GitLab).
 ## Command reference
 
 ```
-/pr-checkout [verb] [flags] [path:DIR] [number|url|target]
+/pr-checkout [verb] [flags] [path:DIR] [remote:NAME] [number|url|target]
 ```
 
 ### Verbs
@@ -41,6 +41,7 @@ Internal local branches: `pr-{number}` (GitHub) or `mr-{number}` (GitLab).
 | Flag | Applies to | Meaning |
 |------|------------|---------|
 | `--force` | checkout | Replace existing worktree or local `pr-N` / `mr-N` branch |
+| `remote:NAME` | checkout, remove | Git remote for repo identity (default: `origin`) |
 | `path:DIR` | list, remove | Target a local clone without cd'ing into it (supports `~`) |
 
 ### Precedence
@@ -61,6 +62,7 @@ When `$ARGUMENTS` contains `help`, print:
 | Command | Description |
 |---------|-------------|
 | `/pr-checkout 123` | PR/MR number in current repo → creates `{repo}.123` |
+| `/pr-checkout remote:upstream 1092` | Fork clone: PR on upstream remote |
 | `/pr-checkout https://github.com/o/r/pull/123` | From GitHub URL |
 | `/pr-checkout https://HOST/g/p/-/merge_requests/123` | From GitLab URL |
 | `/pr-checkout --force 123` | Remove and recreate existing worktree |
@@ -96,7 +98,7 @@ fi
 From `$ARGUMENTS`, classify tokens:
 
 1. **Verb** — first match among: `help`, `list`, `remove`. If none, verb = checkout.
-2. **Flags** — ` --force`, `path:DIR` (for list/remove).
+2. **Flags** — `--force`, `path:DIR` (for list/remove), `remote:NAME` (for checkout/remove; default `origin`).
 3. **Checkout target** — remaining token: number or PR/MR URL.
 4. **Remove target** — remaining number after `remove`.
 
@@ -105,8 +107,9 @@ From `$ARGUMENTS`, classify tokens:
 1. Require cwd inside a git repository (or URL must match cwd repo remote).
 2. Run:
    ```shell
-   bash "$SCRIPT" checkout [--force] "$TARGET"
+   bash "$SCRIPT" checkout [--force] [--remote NAME] "$TARGET"
    ```
+   When `$ARGUMENTS` includes `remote:upstream`, pass `--remote upstream`.
 3. Parse JSON from stdout.
 4. Print the **`cd_command` field verbatim** in a fenced code block — copy-paste ready:
    ```
@@ -116,6 +119,8 @@ From `$ARGUMENTS`, classify tokens:
 6. **Stop** — do not run other commands unless fetch failed (then show error + fix hint).
 
 On error "worktree already exists", suggest `/pr-checkout --force N` or `/pr-checkout remove N`.
+
+On error `gh pr checkout failed`, suggest checking `git remote -v` and retrying with `remote:upstream` (or the remote that owns the PR), e.g. `/pr-checkout remote:upstream 1092`.
 
 ## List workflow
 
@@ -144,16 +149,16 @@ Repo: `{repo_root}`
 1. Parse optional `path:DIR` and required number.
 2. Run:
    ```shell
-   bash "$SCRIPT" remove [--path "$DIR"] [--force] "$NUMBER"
+   bash "$SCRIPT" remove [--remote NAME] [--path "$DIR"] [--force] "$NUMBER"
    ```
 3. Confirm removal (path removed from `git worktree list`).
 4. **Stop**.
 
 ## Requirements
 
-- Must run **inside** the target clone for checkout (URL validates against `origin`).
+- Must run **inside** the target clone for checkout (URL validates against the chosen remote; default `origin`).
 - Uses `gh pr checkout` / `glab mr checkout` to fetch PR/MR heads into local `pr-N` / `mr-N` branches, then `git worktree add` for the sibling worktree (does not leave the main clone checked out on the PR/MR branch).
-- Fetch remote: `origin` if present, otherwise the first configured remote (used by gh/glab from the clone context).
+- **Remote selection:** `--remote NAME` / `remote:NAME` (default `origin`). Use `remote:upstream` in fork clones when the PR is filed against the parent repo.
 - Refuses to delete unrelated directories at the worktree path (only registered worktrees).
 - Requires authenticated `gh` (GitHub) or `glab` (GitLab) for checkout.
 

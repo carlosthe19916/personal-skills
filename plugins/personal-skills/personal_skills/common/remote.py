@@ -20,6 +20,7 @@ __all__ = [
     "probe_provider",
     "resolve_provider_from_url",
     "github_repo_from_url",
+    "github_repo_slug_from_remote_url",
     "gitlab_identity_from_url",
     "gitlab_host_from_url",
     "parse_checkout_arg",
@@ -186,6 +187,30 @@ def github_repo_from_url(url: str) -> str | None:
             return f"{match.group(1)}/{match.group(2)}"
         return match.group(1).removesuffix(".git")
     return None
+
+
+def github_repo_slug_from_remote_url(url: str) -> str | None:
+    """Return gh -R slug: owner/repo on github.com, host/owner/repo on GHE."""
+    slug = github_repo_from_url(url)
+    host = _remote_hostname(url)
+
+    if slug:
+        if not host or host == "github.com":
+            return slug
+        if "github" in host.lower():
+            return slug
+        return f"{host}/{slug}"
+
+    identity = gitlab_identity_from_url(url)
+    if identity is None:
+        return None
+
+    host, path = identity
+    if _looks_like_non_gitlab_host(host):
+        return None
+    if host == "github.com" or "github" in host.lower():
+        return path
+    return f"{host}/{path}"
 
 
 def gitlab_identity_from_url(url: str) -> tuple[str, str] | None:

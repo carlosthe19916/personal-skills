@@ -6,10 +6,7 @@ from pathlib import Path
 import pytest
 
 from personal_skills.common.errors import CliError
-from personal_skills.common.git import (
-    resolve_fetch_remote,
-    resolve_provider_context,
-)
+from personal_skills.common.git import resolve_provider_context
 from personal_skills.common.paths import (
     cd_command_for,
     worktree_path_for,
@@ -51,19 +48,6 @@ branch refs/heads/pr-7
     assert len(entries) == 2
     assert entries[1].path == "/tmp/repo.7"
     assert entries[1].branch == "pr-7"
-
-
-def test_resolve_fetch_remote_prefers_origin(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    runner = MockCliRunner(
-        {
-            ("git", "-C", str(repo), "remote", "get-url", "origin"): subprocess.CompletedProcess(
-                [], 0, "https://github.com/example/repo.git", ""
-            ),
-        }
-    )
-    assert resolve_fetch_remote(str(repo), runner=runner) == "origin"
 
 
 def test_list_and_remove_integration(tmp_path: Path) -> None:
@@ -155,6 +139,119 @@ def test_checkout_mocked_fetch_and_add() -> None:
     assert any("-R" in c and "example/my-app" in c for c in calls)
     assert any("worktree add" in " ".join(c) for c in calls)
     assert not any(c[:4] == ["git", "-C", repo_root, "fetch"] for c in calls)
+
+
+def test_checkout_uses_upstream_remote() -> None:
+    repo_root = "/home/user/git/my-app"
+    calls: list[list[str]] = []
+
+    class RecordingRunner(MockCliRunner):
+        def run(self, args, **kwargs):
+            calls.append(list(args))
+            return super().run(args, **kwargs)
+
+    runner = RecordingRunner(
+        which={"gh"},
+        responses={
+            ("gh", "auth", "status"): subprocess.CompletedProcess([], 0, "", ""),
+            ("git", "-C", repo_root, "rev-parse", "--show-toplevel"): subprocess.CompletedProcess(
+                [], 0, repo_root, ""
+            ),
+            ("git", "-C", repo_root, "remote", "get-url", "upstream"): subprocess.CompletedProcess(
+                [], 0, "https://github.com/upstream-org/main-repo.git", ""
+            ),
+            ("git", "-C", repo_root, "show-ref", "--verify", "--quiet", "refs/heads/pr-1092"): subprocess.CompletedProcess(
+                [], 1, "", ""
+            ),
+            ("git", "-C", repo_root, "worktree", "list", "--porcelain"): subprocess.CompletedProcess(
+                [], 0, f"worktree {repo_root}\n", ""
+            ),
+            ("git", "-C", repo_root, "symbolic-ref", "-q", "HEAD"): subprocess.CompletedProcess(
+                [], 0, "refs/heads/main", ""
+            ),
+            (
+                "gh",
+                "pr",
+                "checkout",
+                "1092",
+                "-b",
+                "pr-1092",
+                "-R",
+                "upstream-org/main-repo",
+            ): subprocess.CompletedProcess([], 0, "", ""),
+            ("git", "-C", repo_root, "switch", "main"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+            ("git", "-C", repo_root, "worktree", "add", f"{repo_root}.1092", "pr-1092"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+        },
+    )
+
+    worktree.checkout(
+        "1092",
+        repo_path=repo_root,
+        remote_name="upstream",
+        runner=runner,
+    )
+    assert any(
+        c[:8] == ["git", "-C", repo_root, "remote", "get-url", "upstream"]
+        for c in calls
+    )
+    assert any("-R" in c and "upstream-org/main-repo" in c for c in calls)
+
+
+def test_checkout_invalid_remote_raises() -> None:
+    repo_root = "/home/user/git/my-app"
+    runner = MockCliRunner(
+        responses={
+            ("git", "-C", repo_root, "rev-parse", "--show-toplevel"): subprocess.CompletedProcess(
+                [], 0, repo_root, ""
+            ),
+            ("git", "-C", repo_root, "remote", "get-url", "upstream"): subprocess.CompletedProcess(
+                [], 1, "", "fatal: No such remote 'upstream'"
+            ),
+        },
+    )
+    with pytest.raises(CliError, match="git remote 'upstream' not found"):
+        worktree.checkout(
+            "1092",
+            repo_path=repo_root,
+            remote_name="upstream",
+            runner=runner,
+        )
+
+
+def test_fetch_pr_branch_gh_failure_includes_stderr() -> None:
+    repo_root = "/home/user/git/my-app"
+    runner = MockCliRunner(
+        which={"gh"},
+        responses={
+            ("gh", "auth", "status"): subprocess.CompletedProcess([], 0, "", ""),
+            ("git", "-C", repo_root, "symbolic-ref", "-q", "HEAD"): subprocess.CompletedProcess(
+                [], 0, "refs/heads/main", ""
+            ),
+            (
+                "gh",
+                "pr",
+                "checkout",
+                "1092",
+                "-b",
+                "pr-1092",
+                "-R",
+                "upstream-org/main-repo",
+            ): subprocess.CompletedProcess([], 1, "", "pull request not found"),
+        },
+    )
+    with pytest.raises(CliError, match="pull request not found"):
+        worktree._fetch_pr_branch(
+            repo_root,
+            "github",
+            "1092",
+            "pr-1092",
+            github_repo="upstream-org/main-repo",
+            runner=runner,
+        )
 
 
 def test_remove_refuses_unrelated_directory(tmp_path: Path) -> None:
