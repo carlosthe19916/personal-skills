@@ -36,6 +36,30 @@ def looks_like_hostname(candidate: str) -> bool:
     return "." in candidate or candidate == "gitlab.com"
 
 
+KNOWN_NON_GITLAB_HOST_FRAGMENTS = (
+    "bitbucket.org",
+    "bitbucket.com",
+    "dev.azure.com",
+    "visualstudio.com",
+    "sourceforge.net",
+)
+
+
+def remote_hostname(url: str) -> str | None:
+    ssh = re.match(r"^git@([^:]+):", url)
+    if ssh:
+        return normalize_gitlab_host(ssh.group(1))
+    https = re.match(r"^https?://([^/]+)/", url)
+    if https:
+        return normalize_gitlab_host(https.group(1))
+    return None
+
+
+def _looks_like_non_gitlab_host(host: str) -> bool:
+    lowered = host.lower()
+    return any(fragment in lowered for fragment in KNOWN_NON_GITLAB_HOST_FRAGMENTS)
+
+
 def detect_provider(url: str) -> Provider:
     lowered = url.lower()
 
@@ -60,6 +84,11 @@ def detect_provider(url: str) -> Provider:
 
     if github_repo_from_url(url):
         return "github"
+
+    host = remote_hostname(url)
+    if host and _looks_like_non_gitlab_host(host):
+        return "unknown"
+
     if gitlab_identity_from_url(url):
         return "gitlab"
 

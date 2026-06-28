@@ -133,7 +133,7 @@ def test_checkout_mocked_fetch_and_add() -> None:
             ("git", "-C", repo_root, "symbolic-ref", "-q", "HEAD"): subprocess.CompletedProcess(
                 [], 0, "refs/heads/main", ""
             ),
-            ("gh", "pr", "checkout", "123", "-b", "pr-123"): subprocess.CompletedProcess(
+            ("gh", "pr", "checkout", "123", "-b", "pr-123", "-R", "example/my-app"): subprocess.CompletedProcess(
                 [], 0, "", ""
             ),
             ("git", "-C", repo_root, "switch", "main"): subprocess.CompletedProcess(
@@ -148,6 +148,7 @@ def test_checkout_mocked_fetch_and_add() -> None:
     result = worktree.checkout("123", repo_path=repo_root, runner=runner)
     assert result.worktree_path == f"{repo_root}.123"
     assert any("gh pr checkout" in " ".join(c) for c in calls)
+    assert any("-R" in c and "example/my-app" in c for c in calls)
     assert any("worktree add" in " ".join(c) for c in calls)
     assert not any(c[:4] == ["git", "-C", repo_root, "fetch"] for c in calls)
 
@@ -296,7 +297,7 @@ def test_checkout_gitlab_uses_glab() -> None:
             ("git", "-C", repo_root, "symbolic-ref", "-q", "HEAD"): subprocess.CompletedProcess(
                 [], 0, "refs/heads/main", ""
             ),
-            ("glab", "mr", "checkout", "42", "-b", "mr-42"): subprocess.CompletedProcess(
+            ("glab", "mr", "checkout", "42", "-b", "mr-42", "-R", "group/project"): subprocess.CompletedProcess(
                 [], 0, "", ""
             ),
             ("git", "-C", repo_root, "switch", "main"): subprocess.CompletedProcess(
@@ -310,6 +311,100 @@ def test_checkout_gitlab_uses_glab() -> None:
     result = worktree.checkout("42", repo_path=repo_root, runner=runner)
     assert result.provider == "gitlab"
     assert any("glab mr checkout" in " ".join(c) for c in calls)
+    assert any("-R" in c and "group/project" in c for c in calls)
+
+
+def test_fetch_pr_branch_restore_head_failure() -> None:
+    repo_root = "/home/user/git/my-app"
+    runner = MockCliRunner(
+        which={"gh"},
+        responses={
+            ("gh", "auth", "status"): subprocess.CompletedProcess([], 0, "", ""),
+            ("git", "-C", repo_root, "symbolic-ref", "-q", "HEAD"): subprocess.CompletedProcess(
+                [], 0, "refs/heads/main", ""
+            ),
+            (
+                "gh",
+                "pr",
+                "checkout",
+                "123",
+                "-b",
+                "pr-123",
+                "-R",
+                "example/my-app",
+            ): subprocess.CompletedProcess([], 0, "", ""),
+            ("git", "-C", repo_root, "switch", "main"): subprocess.CompletedProcess(
+                [], 1, "", "failed to switch"
+            ),
+        },
+    )
+    with pytest.raises(CliError, match="could not restore previous HEAD"):
+        worktree.fetch_pr_branch(
+            repo_root,
+            "github",
+            "123",
+            "pr-123",
+            github_repo="example/my-app",
+            runner=runner,
+        )
+
+
+def test_fetch_pr_branch_gitlab_force_deletes_existing_branch() -> None:
+    repo_root = "/home/user/git/my-app"
+    calls: list[list[str]] = []
+
+    class RecordingRunner(MockCliRunner):
+        def run(self, args, **kwargs):
+            calls.append(list(args))
+            return super().run(args, **kwargs)
+
+    runner = RecordingRunner(
+        which={"glab"},
+        responses={
+            ("glab", "auth", "status", "--hostname", "code.example.com"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+            ("git", "-C", repo_root, "symbolic-ref", "-q", "HEAD"): subprocess.CompletedProcess(
+                [], 0, "refs/heads/main", ""
+            ),
+            (
+                "git",
+                "-C",
+                repo_root,
+                "show-ref",
+                "--verify",
+                "--quiet",
+                "refs/heads/mr-42",
+            ): subprocess.CompletedProcess([], 0, "", ""),
+            ("git", "-C", repo_root, "branch", "-D", "mr-42"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+            (
+                "glab",
+                "mr",
+                "checkout",
+                "42",
+                "-b",
+                "mr-42",
+                "-R",
+                "group/project",
+            ): subprocess.CompletedProcess([], 0, "", ""),
+            ("git", "-C", repo_root, "switch", "main"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+        },
+    )
+    worktree.fetch_pr_branch(
+        repo_root,
+        "gitlab",
+        "42",
+        "mr-42",
+        gitlab_project="group/project",
+        gitlab_host="code.example.com",
+        force=True,
+        runner=runner,
+    )
+    assert any("branch" in " ".join(c) and "-D" in c for c in calls)
 
 
 def test_is_managed_worktree_path_rejects_foreign_gitdir(tmp_path: Path) -> None:

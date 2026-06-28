@@ -36,6 +36,7 @@ def test_normalize_gitlab_host(host: str, expected: str) -> None:
         ("https://gitlab.com/group/project", "gitlab"),
         ("git@code.example.com:group/project.git", "gitlab"),
         ("https://code.example.com/group/project", "gitlab"),
+        ("git@bitbucket.org:team/repo.git", "unknown"),
     ],
 )
 def test_detect_provider(url: str, expected: str) -> None:

@@ -129,12 +129,21 @@ def _read_head_ref(repo_root: str, *, runner: CliRunner) -> str:
 def _restore_head_ref(repo_root: str, ref: str, *, runner: CliRunner) -> None:
     if ref.startswith("refs/heads/"):
         branch = ref.removeprefix("refs/heads/")
-        runner.run(["git", "-C", repo_root, "switch", branch], check=False)
-        return
-    if ref.startswith("refs/"):
-        runner.run(["git", "-C", repo_root, "checkout", "--detach", ref], check=False)
-        return
-    runner.run(["git", "-C", repo_root, "checkout", "--detach", ref], check=False)
+        result = runner.run(["git", "-C", repo_root, "switch", branch], check=False)
+    elif ref.startswith("refs/"):
+        result = runner.run(
+            ["git", "-C", repo_root, "checkout", "--detach", ref],
+            check=False,
+        )
+    else:
+        result = runner.run(
+            ["git", "-C", repo_root, "checkout", "--detach", ref],
+            check=False,
+        )
+    if result.returncode != 0:
+        raise CliError(
+            f"could not restore previous HEAD ({ref}) after provider checkout"
+        )
 
 
 def fetch_pr_branch(
@@ -143,6 +152,8 @@ def fetch_pr_branch(
     number: str,
     local_branch: str,
     *,
+    github_repo: str | None = None,
+    gitlab_project: str | None = None,
     gitlab_host: str = "gitlab.com",
     force: bool = False,
     runner: CliRunner | None = None,
@@ -152,15 +163,31 @@ def fetch_pr_branch(
     previous = _read_head_ref(repo_root, runner=runner)
 
     if provider == "github":
-        args = ["gh", "pr", "checkout", number, "-b", local_branch]
+        if not github_repo:
+            raise CliError("could not determine GitHub repo from origin")
+        args = ["gh", "pr", "checkout", number, "-b", local_branch, "-R", github_repo]
         if force:
             args.append("-f")
         result = runner.run(args, cwd=repo_root, check=False)
         if result.returncode != 0:
             raise CliError(f"gh pr checkout failed for PR #{number}")
     else:
+        if not gitlab_project:
+            raise CliError("could not determine GitLab project from origin")
+        if force:
+            delete_local_branch_if_safe(repo_root, local_branch, runner=runner)
+        args = [
+            "glab",
+            "mr",
+            "checkout",
+            number,
+            "-b",
+            local_branch,
+            "-R",
+            gitlab_project,
+        ]
         result = runner.run(
-            ["glab", "mr", "checkout", number, "-b", local_branch],
+            args,
             cwd=repo_root,
             check=False,
             env={"GITLAB_HOST": gitlab_host},
@@ -257,7 +284,7 @@ def ensure_branch_available_for_fetch(
     if verify.returncode != 0:
         return
     if force:
-        delete_local_branch_if_safe(repo_root, branch, runner=runner)
+        # gh/glab replace existing branches; avoid deleting before provider checkout.
         return
     number = branch.split("-", 1)[-1]
     raise CliError(
@@ -309,11 +336,19 @@ def checkout(
 
     ensure_branch_available_for_fetch(repo_root, local_branch, force=force, runner=runner)
 
+    github_repo = github_repo_from_url(url) if provider == "github" else None
+    gitlab_project: str | None = None
+    if provider == "gitlab":
+        identity = gitlab_identity_from_url(url)
+        gitlab_project = identity[1] if identity else None
+
     fetch_pr_branch(
         repo_root,
         provider,
         number,
         local_branch,
+        github_repo=github_repo,
+        gitlab_project=gitlab_project,
         gitlab_host=gitlab_host,
         force=force,
         runner=runner,
