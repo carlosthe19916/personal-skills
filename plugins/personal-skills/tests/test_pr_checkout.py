@@ -8,8 +8,10 @@ import pytest
 from personal_skills.common.errors import CliError
 from personal_skills.common.git import (
     cd_command_for,
+    is_managed_worktree_path,
     parse_worktree_porcelain,
     resolve_fetch_remote,
+    resolve_provider_context,
     worktree_path_for,
 )
 from personal_skills.common.remote import local_branch_name
@@ -113,9 +115,7 @@ def test_checkout_mocked_fetch_and_add() -> None:
             return super().run(args, **kwargs)
 
     runner = RecordingRunner(
-        which={"gh"},
         responses={
-            ("gh", "auth", "status"): subprocess.CompletedProcess([], 0, "", ""),
             ("git", "-C", repo_root, "rev-parse", "--show-toplevel"): subprocess.CompletedProcess(
                 [], 0, repo_root, ""
             ),
@@ -213,9 +213,7 @@ def test_worktree_remove_failure_raises_cli_error() -> None:
     repo_root = "/home/user/git/my-app"
     wt_path = f"{repo_root}.123"
     runner = MockCliRunner(
-        which={"gh"},
         responses={
-            ("gh", "auth", "status"): subprocess.CompletedProcess([], 0, "", ""),
             ("git", "-C", repo_root, "rev-parse", "--show-toplevel"): subprocess.CompletedProcess(
                 [], 0, repo_root, ""
             ),
@@ -233,3 +231,69 @@ def test_worktree_remove_failure_raises_cli_error() -> None:
 
     with pytest.raises(CliError, match="git worktree remove failed"):
         worktree.remove_worktree_if_exists(repo_root, wt_path, "pr-123", runner=runner)
+
+
+def test_checkout_skips_gh_auth_preflight() -> None:
+    repo_root = "/home/user/git/my-app"
+    runner = MockCliRunner(
+        which={"gh"},
+        responses={
+            ("gh", "auth", "status"): subprocess.CompletedProcess([], 1, "", "not logged in"),
+            ("git", "-C", repo_root, "rev-parse", "--show-toplevel"): subprocess.CompletedProcess(
+                [], 0, repo_root, ""
+            ),
+            ("git", "-C", repo_root, "remote", "get-url", "origin"): subprocess.CompletedProcess(
+                [], 0, "https://github.com/example/my-app.git", ""
+            ),
+            ("git", "-C", repo_root, "show-ref", "--verify", "--quiet", "refs/heads/pr-123"): subprocess.CompletedProcess(
+                [], 1, "", ""
+            ),
+            ("git", "-C", repo_root, "worktree", "list", "--porcelain"): subprocess.CompletedProcess(
+                [], 0, f"worktree {repo_root}\n", ""
+            ),
+            ("git", "-C", repo_root, "fetch", "origin", "pull/123/head:pr-123"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+            ("git", "-C", repo_root, "worktree", "add", f"{repo_root}.123", "pr-123"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+        },
+    )
+    result = worktree.checkout("123", repo_path=repo_root, runner=runner)
+    assert result.number == "123"
+
+
+def test_is_managed_worktree_path_rejects_foreign_gitdir(tmp_path: Path) -> None:
+    repo = tmp_path / "my-app"
+    foreign = tmp_path / "my-app.9"
+    other_repo = tmp_path / "other"
+    repo.mkdir()
+    foreign.mkdir()
+    other_repo.mkdir()
+    (other_repo / ".git" / "worktrees" / "wt").mkdir(parents=True)
+    gitdir_target = other_repo / ".git" / "worktrees" / "wt"
+    (foreign / ".git").write_text(f"gitdir: {gitdir_target}\n", encoding="utf-8")
+
+    runner = MockCliRunner(
+        responses={
+            ("git", "-C", str(repo), "worktree", "list", "--porcelain"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+        }
+    )
+    assert not is_managed_worktree_path(str(repo), str(foreign), runner=runner)
+
+
+def test_resolve_provider_context_custom_gitlab_host(tmp_path: Path) -> None:
+    repo = tmp_path / "my-app"
+    repo.mkdir()
+    runner = MockCliRunner(
+        responses={
+            ("git", "-C", str(repo), "remote", "get-url", "origin"): subprocess.CompletedProcess(
+                [], 0, "git@code.example.com:group/project.git", ""
+            ),
+        }
+    )
+    ctx = resolve_provider_context(str(repo), runner=runner)
+    assert ctx.provider == "gitlab"
+    assert ctx.gitlab_host == "code.example.com"

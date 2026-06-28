@@ -58,6 +58,11 @@ def detect_provider(url: str) -> Provider:
         if "gitlab" in host:
             return "gitlab"
 
+    if github_repo_from_url(url):
+        return "github"
+    if gitlab_identity_from_url(url):
+        return "gitlab"
+
     return "unknown"
 
 

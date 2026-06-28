@@ -152,17 +152,36 @@ def worktree_registered(
     return False
 
 
+def _read_gitdir_path(wt_path: str) -> Path | None:
+    git_file = Path(wt_path) / ".git"
+    if not git_file.is_file():
+        return None
+    lines = git_file.read_text(encoding="utf-8").splitlines()
+    if not lines or not lines[0].startswith("gitdir:"):
+        return None
+    gitdir = lines[0].removeprefix("gitdir:").strip()
+    if not gitdir:
+        return None
+    return Path(wt_path) / gitdir if not os.path.isabs(gitdir) else Path(gitdir)
+
+
+def _gitdir_belongs_to_repo(repo_root: str, wt_path: str) -> bool:
+    gitdir = _read_gitdir_path(wt_path)
+    if gitdir is None:
+        return False
+    try:
+        repo_git = (Path(repo_root) / ".git").resolve()
+        return gitdir.resolve().is_relative_to(repo_git)
+    except (OSError, ValueError):
+        return False
+
+
 def is_managed_worktree_path(
     repo_root: str, wt_path: str, *, runner: CliRunner | None = None
 ) -> bool:
     if worktree_registered(repo_root, wt_path, runner=runner):
         return True
-    git_file = Path(wt_path) / ".git"
-    if git_file.is_file():
-        first_line = git_file.read_text(encoding="utf-8").splitlines()[:1]
-        if first_line and first_line[0].startswith("gitdir:"):
-            return True
-    return False
+    return _gitdir_belongs_to_repo(repo_root, wt_path)
 
 
 def repo_label_from_url(url: str, repo_root: str) -> str:

@@ -88,29 +88,6 @@ def validate_repo_match(
         )
 
 
-def preflight_auth(
-    provider: str,
-    gitlab_host: str = "gitlab.com",
-    *,
-    runner: CliRunner | None = None,
-) -> None:
-    runner = runner or get_runner()
-    if provider == "github":
-        if runner.which("gh") and runner.run(["gh", "auth", "status"], check=False).returncode != 0:
-            raise CliError("gh is not authenticated. Run: gh auth login")
-    elif provider == "gitlab":
-        if runner.which("glab"):
-            result = runner.run(
-                ["glab", "auth", "status", "--hostname", gitlab_host],
-                check=False,
-            )
-            if result.returncode != 0:
-                raise CliError(
-                    f"glab is not authenticated for {gitlab_host}.\n"
-                    f"Run: glab auth login --hostname {gitlab_host}"
-                )
-
-
 def delete_local_branch_if_safe(
     repo_root: str,
     branch: str,
@@ -223,18 +200,13 @@ def checkout(
     if parsed.kind == "number":
         ctx = resolve_provider_context(repo_root, runner=runner)
         provider = ctx.provider
-        gitlab_host = ctx.gitlab_host
         validate_repo_match(repo_root, parsed, runner=runner)
     elif parsed.kind == "github":
         provider = "github"
-        gitlab_host = "gitlab.com"
         validate_repo_match(repo_root, parsed, runner=runner)
     else:
         provider = "gitlab"
-        gitlab_host = parsed.gitlab_host or "gitlab.com"
         validate_repo_match(repo_root, parsed, runner=runner)
-
-    preflight_auth(provider, gitlab_host, runner=runner)
 
     number = parsed.number
     local_branch = local_branch_name(provider, number)
