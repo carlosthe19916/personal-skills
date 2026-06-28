@@ -27,6 +27,25 @@ def test_every_command_has_frontmatter() -> None:
         assert meta.get("description"), f"{path.name} missing description"
 
 
+def test_command_frontmatter_description_quoted_when_needed() -> None:
+    """Unquoted colons in YAML description break GitHub frontmatter parsing."""
+    for path in sorted(COMMANDS_DIR.glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        match = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
+        assert match, f"{path.name} missing frontmatter"
+        for line in match.group(1).splitlines():
+            if not line.startswith("description:"):
+                continue
+            value = line.removeprefix("description:").strip()
+            if ":" in value and not (
+                (value.startswith('"') and value.endswith('"'))
+                or (value.startswith("'") and value.endswith("'"))
+            ):
+                raise AssertionError(
+                    f"{path.name} description must be quoted (contains ':'): {value!r}"
+                )
+
+
 def test_wrapper_scripts_exist_and_executable() -> None:
     wrappers = [
         SCRIPTS_DIR / "pr-checkout" / "pr_worktree.sh",

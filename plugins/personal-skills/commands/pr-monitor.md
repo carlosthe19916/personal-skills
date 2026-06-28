@@ -1,6 +1,6 @@
 ---
 name: pr-monitor
-description: Monitor open PRs/MRs across GitHub and GitLab. Commands: list (default), sources, setup, init, help.
+description: "Monitor open PRs/MRs across GitHub and GitLab. Commands: list (default), sources, setup, init, help."
 argument-hint: "[help|list|sources|setup|init] [all|wip] [author:login|org:name|group:name|host:hostname|repo:...]"
 disable-model-invocation: true
 allowed-tools: Read Edit Write Bash(gh *) Bash(glab *) Bash(python3 *) Bash(mkdir *) Bash(cp *) Bash(find *) Bash(test *)

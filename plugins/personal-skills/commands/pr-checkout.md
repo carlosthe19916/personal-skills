@@ -1,6 +1,6 @@
 ---
 name: pr-checkout
-description: Check out a GitHub PR or GitLab MR into a sibling git worktree via git worktree add. Commands: checkout (default), list, remove, help.
+description: "Check out a GitHub PR or GitLab MR into a sibling git worktree via git worktree add. Commands: checkout (default), list, remove, help."
 argument-hint: "[help|list|remove] [--force] [path:DIR] [remote:NAME] [number|url]"
 disable-model-invocation: true
 allowed-tools: Read Bash(git *) Bash(gh *) Bash(glab *) Bash(python3 *)
