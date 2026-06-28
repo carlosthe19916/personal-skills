@@ -1,0 +1,58 @@
+# PR Monitor — user config template
+#
+# On first run, /pr-monitor init copies this file to:
+#   ~/.config/personal-skills/pr-monitor/sources.yaml
+#
+# Commands: /pr-monitor help | list | sources | setup | init
+# Supports GitHub (gh) and GitLab (glab), including self-managed instances.
+# Override path: PR_MONITOR_CONFIG=/path/to/sources.yaml
+
+sources:
+  github:
+    orgs:
+      - name: my-github-org
+    repos:
+      - owner/standalone-repo
+
+  gitlab:
+    # Multiple GitLab instances (self-managed + gitlab.com)
+    instances:
+      - host: gitlab.cee.redhat.com
+        groups:
+          - name: trustification
+        repos:
+          - trustification/trustify
+
+      - host: gitlab.com
+        groups:
+          - name: my-public-group
+        repos: []
+
+# Legacy single-instance GitLab shorthand (still supported):
+#   gitlab:
+#     host: gitlab.cee.redhat.com
+#     groups: [{ name: my-group }]
+#     repos: [group/project]
+
+authors:
+  - teammate-a
+
+bots:
+  - dependabot[bot]
+  - renovate[bot]
+  - renovate-bot
+
+filters:
+  exclude_drafts: true
+  ready_for_review_only: true
+
+display:
+  title: "My PR Monitor"
+  sort_by: updated_at
+  sort_dir: desc
+  stale_days: 3
+
+# Legacy GitHub-only format (still supported):
+# sources:
+#   orgs: [{ name: my-github-org }]
+#   repos: [owner/repo]
