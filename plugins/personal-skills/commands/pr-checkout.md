@@ -152,10 +152,10 @@ Repo: `{repo_root}`
 ## Requirements
 
 - Must run **inside** the target clone for checkout (URL validates against `origin`).
-- Uses native git only for worktree lifecycle — not `gh pr checkout` / `glab mr checkout`.
-- Fetch remote: `origin` if present, otherwise the first configured remote.
+- Uses `gh pr checkout` / `glab mr checkout` to fetch PR/MR heads into local `pr-N` / `mr-N` branches, then `git worktree add` for the sibling worktree (does not leave the main clone checked out on the PR/MR branch).
+- Fetch remote: `origin` if present, otherwise the first configured remote (used by gh/glab from the clone context).
 - Refuses to delete unrelated directories at the worktree path (only registered worktrees).
-- `gh` / `glab` auth checked when provider is detected (optional if fetch works without them).
+- Requires authenticated `gh` (GitHub) or `glab` (GitLab) for checkout.
 
 ## Related
 

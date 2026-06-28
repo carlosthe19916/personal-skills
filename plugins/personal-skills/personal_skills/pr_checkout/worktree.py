@@ -15,7 +15,6 @@ from personal_skills.common.git import (
     parse_worktree_porcelain,
     remote_url,
     repo_label_from_url,
-    resolve_fetch_remote,
     resolve_provider_context,
     resolve_repo_root,
     worktree_path_for,
@@ -86,6 +85,90 @@ def validate_repo_match(
             f"URL is for GitLab {parsed.gitlab_host}/{parsed.gitlab_path} "
             f"but origin is {host}/{path}."
         )
+
+
+def preflight_auth(
+    provider: str,
+    gitlab_host: str = "gitlab.com",
+    *,
+    runner: CliRunner | None = None,
+) -> None:
+    runner = runner or get_runner()
+    if provider == "github":
+        if not runner.which("gh"):
+            raise CliError("gh CLI is required for GitHub repos but is not installed")
+        if runner.run(["gh", "auth", "status"], check=False).returncode != 0:
+            raise CliError("gh is not authenticated. Run: gh auth login")
+    elif provider == "gitlab":
+        if not runner.which("glab"):
+            raise CliError("glab CLI is required for GitLab repos but is not installed")
+        result = runner.run(
+            ["glab", "auth", "status", "--hostname", gitlab_host],
+            check=False,
+        )
+        if result.returncode != 0:
+            raise CliError(
+                f"glab is not authenticated for {gitlab_host}.\n"
+                f"Run: glab auth login --hostname {gitlab_host}"
+            )
+
+
+def _read_head_ref(repo_root: str, *, runner: CliRunner) -> str:
+    symbolic = runner.run(
+        ["git", "-C", repo_root, "symbolic-ref", "-q", "HEAD"],
+        check=False,
+    )
+    if symbolic.returncode == 0:
+        return symbolic.stdout.strip()
+    sha = runner.run(["git", "-C", repo_root, "rev-parse", "HEAD"], check=False)
+    if sha.returncode != 0:
+        raise CliError("could not read current HEAD before provider checkout")
+    return sha.stdout.strip()
+
+
+def _restore_head_ref(repo_root: str, ref: str, *, runner: CliRunner) -> None:
+    if ref.startswith("refs/heads/"):
+        branch = ref.removeprefix("refs/heads/")
+        runner.run(["git", "-C", repo_root, "switch", branch], check=False)
+        return
+    if ref.startswith("refs/"):
+        runner.run(["git", "-C", repo_root, "checkout", "--detach", ref], check=False)
+        return
+    runner.run(["git", "-C", repo_root, "checkout", "--detach", ref], check=False)
+
+
+def fetch_pr_branch(
+    repo_root: str,
+    provider: str,
+    number: str,
+    local_branch: str,
+    *,
+    gitlab_host: str = "gitlab.com",
+    force: bool = False,
+    runner: CliRunner | None = None,
+) -> None:
+    runner = runner or get_runner()
+    preflight_auth(provider, gitlab_host, runner=runner)
+    previous = _read_head_ref(repo_root, runner=runner)
+
+    if provider == "github":
+        args = ["gh", "pr", "checkout", number, "-b", local_branch]
+        if force:
+            args.append("-f")
+        result = runner.run(args, cwd=repo_root, check=False)
+        if result.returncode != 0:
+            raise CliError(f"gh pr checkout failed for PR #{number}")
+    else:
+        result = runner.run(
+            ["glab", "mr", "checkout", number, "-b", local_branch],
+            cwd=repo_root,
+            check=False,
+            env={"GITLAB_HOST": gitlab_host},
+        )
+        if result.returncode != 0:
+            raise CliError(f"glab mr checkout failed for MR !{number}")
+
+    _restore_head_ref(repo_root, previous, runner=runner)
 
 
 def delete_local_branch_if_safe(
@@ -200,18 +283,20 @@ def checkout(
     if parsed.kind == "number":
         ctx = resolve_provider_context(repo_root, runner=runner)
         provider = ctx.provider
+        gitlab_host = ctx.gitlab_host
         validate_repo_match(repo_root, parsed, runner=runner)
     elif parsed.kind == "github":
         provider = "github"
+        gitlab_host = "gitlab.com"
         validate_repo_match(repo_root, parsed, runner=runner)
     else:
         provider = "gitlab"
+        gitlab_host = parsed.gitlab_host or "gitlab.com"
         validate_repo_match(repo_root, parsed, runner=runner)
 
     number = parsed.number
     local_branch = local_branch_name(provider, number)
     wt_path = worktree_path_for(repo_root, number)
-    fetch_remote = resolve_fetch_remote(repo_root, runner=runner)
     url = remote_url(repo_root, runner=runner)
 
     if Path(wt_path).exists() or worktree_registered(repo_root, wt_path, runner=runner):
@@ -224,13 +309,15 @@ def checkout(
 
     ensure_branch_available_for_fetch(repo_root, local_branch, force=force, runner=runner)
 
-    fetch_ref = f"pull/{number}/head" if provider == "github" else f"merge-requests/{number}/head"
-    fetch_result = runner.run(
-        ["git", "-C", repo_root, "fetch", fetch_remote, f"{fetch_ref}:{local_branch}"],
-        check=False,
+    fetch_pr_branch(
+        repo_root,
+        provider,
+        number,
+        local_branch,
+        gitlab_host=gitlab_host,
+        force=force,
+        runner=runner,
     )
-    if fetch_result.returncode != 0:
-        raise CliError(f"git fetch failed for {fetch_remote} {fetch_ref}")
 
     add_result = runner.run(
         ["git", "-C", repo_root, "worktree", "add", wt_path, local_branch],

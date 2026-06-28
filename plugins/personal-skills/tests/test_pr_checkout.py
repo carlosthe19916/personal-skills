@@ -115,7 +115,9 @@ def test_checkout_mocked_fetch_and_add() -> None:
             return super().run(args, **kwargs)
 
     runner = RecordingRunner(
+        which={"gh"},
         responses={
+            ("gh", "auth", "status"): subprocess.CompletedProcess([], 0, "", ""),
             ("git", "-C", repo_root, "rev-parse", "--show-toplevel"): subprocess.CompletedProcess(
                 [], 0, repo_root, ""
             ),
@@ -128,7 +130,13 @@ def test_checkout_mocked_fetch_and_add() -> None:
             ("git", "-C", repo_root, "worktree", "list", "--porcelain"): subprocess.CompletedProcess(
                 [], 0, f"worktree {repo_root}\n", ""
             ),
-            ("git", "-C", repo_root, "fetch", "origin", "pull/123/head:pr-123"): subprocess.CompletedProcess(
+            ("git", "-C", repo_root, "symbolic-ref", "-q", "HEAD"): subprocess.CompletedProcess(
+                [], 0, "refs/heads/main", ""
+            ),
+            ("gh", "pr", "checkout", "123", "-b", "pr-123"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+            ("git", "-C", repo_root, "switch", "main"): subprocess.CompletedProcess(
                 [], 0, "", ""
             ),
             ("git", "-C", repo_root, "worktree", "add", f"{repo_root}.123", "pr-123"): subprocess.CompletedProcess(
@@ -139,8 +147,9 @@ def test_checkout_mocked_fetch_and_add() -> None:
 
     result = worktree.checkout("123", repo_path=repo_root, runner=runner)
     assert result.worktree_path == f"{repo_root}.123"
-    assert any("fetch" in " ".join(c) for c in calls)
+    assert any("gh pr checkout" in " ".join(c) for c in calls)
     assert any("worktree add" in " ".join(c) for c in calls)
+    assert not any(c[:4] == ["git", "-C", repo_root, "fetch"] for c in calls)
 
 
 def test_remove_refuses_unrelated_directory(tmp_path: Path) -> None:
@@ -233,7 +242,7 @@ def test_worktree_remove_failure_raises_cli_error() -> None:
         worktree.remove_worktree_if_exists(repo_root, wt_path, "pr-123", runner=runner)
 
 
-def test_checkout_skips_gh_auth_preflight() -> None:
+def test_checkout_requires_gh_auth() -> None:
     repo_root = "/home/user/git/my-app"
     runner = MockCliRunner(
         which={"gh"},
@@ -251,16 +260,56 @@ def test_checkout_skips_gh_auth_preflight() -> None:
             ("git", "-C", repo_root, "worktree", "list", "--porcelain"): subprocess.CompletedProcess(
                 [], 0, f"worktree {repo_root}\n", ""
             ),
-            ("git", "-C", repo_root, "fetch", "origin", "pull/123/head:pr-123"): subprocess.CompletedProcess(
+        },
+    )
+    with pytest.raises(CliError, match="gh is not authenticated"):
+        worktree.checkout("123", repo_path=repo_root, runner=runner)
+
+
+def test_checkout_gitlab_uses_glab() -> None:
+    repo_root = "/home/user/git/my-app"
+    calls: list[list[str]] = []
+
+    class RecordingRunner(MockCliRunner):
+        def run(self, args, **kwargs):
+            calls.append(list(args))
+            return super().run(args, **kwargs)
+
+    runner = RecordingRunner(
+        which={"glab"},
+        responses={
+            ("glab", "auth", "status", "--hostname", "code.example.com"): subprocess.CompletedProcess(
                 [], 0, "", ""
             ),
-            ("git", "-C", repo_root, "worktree", "add", f"{repo_root}.123", "pr-123"): subprocess.CompletedProcess(
+            ("git", "-C", repo_root, "rev-parse", "--show-toplevel"): subprocess.CompletedProcess(
+                [], 0, repo_root, ""
+            ),
+            ("git", "-C", repo_root, "remote", "get-url", "origin"): subprocess.CompletedProcess(
+                [], 0, "git@code.example.com:group/project.git", ""
+            ),
+            ("git", "-C", repo_root, "show-ref", "--verify", "--quiet", "refs/heads/mr-42"): subprocess.CompletedProcess(
+                [], 1, "", ""
+            ),
+            ("git", "-C", repo_root, "worktree", "list", "--porcelain"): subprocess.CompletedProcess(
+                [], 0, f"worktree {repo_root}\n", ""
+            ),
+            ("git", "-C", repo_root, "symbolic-ref", "-q", "HEAD"): subprocess.CompletedProcess(
+                [], 0, "refs/heads/main", ""
+            ),
+            ("glab", "mr", "checkout", "42", "-b", "mr-42"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+            ("git", "-C", repo_root, "switch", "main"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+            ("git", "-C", repo_root, "worktree", "add", f"{repo_root}.42", "mr-42"): subprocess.CompletedProcess(
                 [], 0, "", ""
             ),
         },
     )
-    result = worktree.checkout("123", repo_path=repo_root, runner=runner)
-    assert result.number == "123"
+    result = worktree.checkout("42", repo_path=repo_root, runner=runner)
+    assert result.provider == "gitlab"
+    assert any("glab mr checkout" in " ".join(c) for c in calls)
 
 
 def test_is_managed_worktree_path_rejects_foreign_gitdir(tmp_path: Path) -> None:
