@@ -10,7 +10,6 @@ from personal_skills.common.remote import (
 
 __all__ = [
     "resolve_repo_root",
-    "resolve_fetch_remote",
     "remote_url",
     "resolve_provider_context",
 ]
@@ -33,39 +32,35 @@ def resolve_repo_root(base: str = ".", *, runner: CliRunner | None = None) -> st
     return result.stdout.strip()
 
 
-def resolve_fetch_remote(repo_root: str, *, runner: CliRunner | None = None) -> str:
+def remote_url(
+    repo_root: str,
+    *,
+    remote_name: str = "origin",
+    runner: CliRunner | None = None,
+) -> str:
     runner = runner or get_runner()
-    origin = runner.run(
-        ["git", "-C", repo_root, "remote", "get-url", "origin"],
-        check=False,
-    )
-    if origin.returncode == 0:
-        return "origin"
-
-    remotes = runner.run(["git", "-C", repo_root, "remote"], check=False)
-    if remotes.returncode == 0 and remotes.stdout.strip():
-        return remotes.stdout.strip().splitlines()[0]
-
-    raise CliError(f"no git remote configured in {repo_root}")
-
-
-def remote_url(repo_root: str, *, runner: CliRunner | None = None) -> str:
-    runner = runner or get_runner()
-    remote = resolve_fetch_remote(repo_root, runner=runner)
     result = runner.run(
-        ["git", "-C", repo_root, "remote", "get-url", remote],
+        ["git", "-C", repo_root, "remote", "get-url", remote_name],
         check=False,
     )
-    return result.stdout.strip() if result.returncode == 0 else ""
+    if result.returncode != 0:
+        raise CliError(f"git remote '{remote_name}' not found in {repo_root}")
+    url = result.stdout.strip()
+    if not url:
+        raise CliError(f"git remote '{remote_name}' has no URL in {repo_root}")
+    return url
 
 
 def resolve_provider_context(
-    repo_root: str, *, runner: CliRunner | None = None
+    repo_root: str,
+    *,
+    remote_name: str = "origin",
+    url: str | None = None,
+    runner: CliRunner | None = None,
 ) -> ProviderContext:
     runner = runner or get_runner()
-    url = remote_url(repo_root, runner=runner)
-    if not url:
-        raise CliError(f"no git remote configured in {repo_root}")
+    if url is None:
+        url = remote_url(repo_root, remote_name=remote_name, runner=runner)
 
     provider = resolve_provider_from_url(url, runner=runner)
     if provider == "unknown":

@@ -4,6 +4,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from subprocess import CompletedProcess
 from typing import Any
 
 from personal_skills.common.auth import check_provider_auth
@@ -23,6 +24,7 @@ from personal_skills.common.remote import (
     ParsedCheckoutArg,
     gitlab_identity_from_url,
     github_repo_from_url,
+    github_repo_slug_from_remote_url,
     local_branch_name,
     parse_checkout_arg,
 )
@@ -69,6 +71,7 @@ def checkout(
     *,
     force: bool = False,
     repo_path: str = ".",
+    remote_name: str = "origin",
     runner: CliRunner | None = None,
 ) -> CheckoutResult:
     runner = runner or get_runner()
@@ -77,25 +80,28 @@ def checkout(
 
     repo_root = resolve_repo_root(repo_path, runner=runner)
     parsed = parse_checkout_arg(arg)
+    url = remote_url(repo_root, remote_name=remote_name, runner=runner)
 
     if parsed.kind == "number":
-        ctx = resolve_provider_context(repo_root, runner=runner)
+        ctx = resolve_provider_context(
+            repo_root, remote_name=remote_name, url=url, runner=runner
+        )
         provider = ctx.provider
         gitlab_host = ctx.gitlab_host
-        validate_repo_match(repo_root, parsed, runner=runner)
     elif parsed.kind == "github":
         provider = "github"
         gitlab_host = "gitlab.com"
-        validate_repo_match(repo_root, parsed, runner=runner)
     else:
         provider = "gitlab"
         gitlab_host = parsed.gitlab_host or "gitlab.com"
-        validate_repo_match(repo_root, parsed, runner=runner)
+
+    validate_repo_match(
+        repo_root, parsed, remote_name=remote_name, url=url, runner=runner
+    )
 
     number = parsed.number
     local_branch = local_branch_name(provider, number)
     wt_path = worktree_path_for(repo_root, number)
-    url = remote_url(repo_root, runner=runner)
 
     if Path(wt_path).exists() or worktree_registered(repo_root, wt_path, runner=runner):
         if not force:
@@ -107,7 +113,7 @@ def checkout(
 
     _ensure_branch_available(repo_root, local_branch, force=force, runner=runner)
 
-    github_repo = github_repo_from_url(url) if provider == "github" else None
+    github_repo = github_repo_slug_from_remote_url(url) if provider == "github" else None
     gitlab_project: str | None = None
     if provider == "gitlab":
         identity = gitlab_identity_from_url(url)
@@ -121,6 +127,7 @@ def checkout(
         github_repo=github_repo,
         gitlab_project=gitlab_project,
         gitlab_host=gitlab_host,
+        remote_name=remote_name,
         force=force,
         runner=runner,
     )
@@ -178,6 +185,7 @@ def remove(
     *,
     force: bool = False,
     repo_path: str = ".",
+    remote_name: str = "origin",
     runner: CliRunner | None = None,
 ) -> dict[str, Any]:
     runner = runner or get_runner()
@@ -187,7 +195,9 @@ def remove(
         raise CliError("remove target must be a number (e.g. 123)")
 
     repo_root = resolve_repo_root(repo_path, runner=runner)
-    ctx = resolve_provider_context(repo_root, runner=runner)
+    ctx = resolve_provider_context(
+        repo_root, remote_name=remote_name, runner=runner
+    )
     local_branch = local_branch_name(ctx.provider, number)
     wt_path = worktree_path_for(repo_root, number)
 
@@ -250,34 +260,42 @@ def validate_repo_match(
     repo_root: str,
     parsed: ParsedCheckoutArg,
     *,
+    remote_name: str = "origin",
+    url: str | None = None,
     runner: CliRunner | None = None,
 ) -> None:
-    origin = remote_url(repo_root, runner=runner)
-    if not origin:
-        raise CliError(f"no git remote configured in {repo_root}")
+    if url is None:
+        url = remote_url(repo_root, remote_name=remote_name, runner=runner)
+    remote = url
 
     if parsed.kind == "number":
         return
 
     if parsed.kind == "github":
-        actual = github_repo_from_url(origin)
+        actual = github_repo_from_url(remote)
         if actual != parsed.github_repo:
             raise CliError(
                 f"URL is for GitHub repo '{parsed.github_repo}' "
-                f"but origin is '{actual or 'unknown'}'.\n"
-                "Run /pr-checkout from the matching clone."
+                f"but remote '{remote_name}' is '{actual or 'unknown'}'.\n"
+                "Run /pr-checkout from the matching clone or use remote:NAME."
             )
         return
 
-    identity = gitlab_identity_from_url(origin)
+    identity = gitlab_identity_from_url(remote)
     if identity is None:
-        raise CliError(f"could not parse GitLab identity from origin: {origin}")
+        raise CliError(
+            f"could not parse GitLab identity from remote '{remote_name}': {remote}"
+        )
     host, path = identity
     if host != parsed.gitlab_host or path != parsed.gitlab_path:
         raise CliError(
             f"URL is for GitLab {parsed.gitlab_host}/{parsed.gitlab_path} "
-            f"but origin is {host}/{path}."
+            f"but remote '{remote_name}' is {host}/{path}."
         )
+
+
+def _command_detail(result: CompletedProcess[str]) -> str:
+    return (result.stderr or result.stdout or "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +340,7 @@ def _fetch_pr_branch(
     github_repo: str | None = None,
     gitlab_project: str | None = None,
     gitlab_host: str = "gitlab.com",
+    remote_name: str = "origin",
     force: bool = False,
     runner: CliRunner | None = None,
 ) -> None:
@@ -331,16 +350,22 @@ def _fetch_pr_branch(
 
     if provider == "github":
         if not github_repo:
-            raise CliError("could not determine GitHub repo from origin")
+            raise CliError(
+                f"could not determine GitHub repo from remote '{remote_name}'"
+            )
         args = ["gh", "pr", "checkout", number, "-b", local_branch, "-R", github_repo]
         if force:
             args.append("-f")
         result = runner.run(args, cwd=repo_root, check=False)
         if result.returncode != 0:
-            raise CliError(f"gh pr checkout failed for PR #{number}")
+            msg = f"gh pr checkout failed for PR #{number}"
+            detail = _command_detail(result)
+            raise CliError(f"{msg}: {detail}" if detail else msg)
     else:
         if not gitlab_project:
-            raise CliError("could not determine GitLab project from origin")
+            raise CliError(
+                f"could not determine GitLab project from remote '{remote_name}'"
+            )
         if force:
             _delete_branch_if_safe(repo_root, local_branch, runner=runner)
         args = [
@@ -360,7 +385,9 @@ def _fetch_pr_branch(
             env={"GITLAB_HOST": gitlab_host},
         )
         if result.returncode != 0:
-            raise CliError(f"glab mr checkout failed for MR !{number}")
+            msg = f"glab mr checkout failed for MR !{number}"
+            detail = _command_detail(result)
+            raise CliError(f"{msg}: {detail}" if detail else msg)
 
     try:
         _restore_head_ref(repo_root, previous, runner=runner)
