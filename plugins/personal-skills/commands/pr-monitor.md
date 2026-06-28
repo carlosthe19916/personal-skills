@@ -3,7 +3,7 @@ name: pr-monitor
 description: Monitor open PRs/MRs across GitHub and GitLab. Commands: list (default), sources, setup, init, help.
 argument-hint: "[help|list|sources|setup|init] [all|wip] [author:login|org:name|group:name|host:hostname|repo:...]"
 disable-model-invocation: true
-allowed-tools: Read Edit Write Bash(gh *) Bash(glab *) Bash(jq *) Bash(mkdir *) Bash(cp *) Bash(find *) Bash(test *)
+allowed-tools: Read Edit Write Bash(gh *) Bash(glab *) Bash(python3 *) Bash(mkdir *) Bash(cp *) Bash(find *) Bash(test *)
 ---
 
 # PR Monitor
@@ -115,6 +115,8 @@ When `$ARGUMENTS` contains `help`, print this (adapt examples to the user's conf
 | `/pr-monitor setup` | Interactive wizard (recommended first run) |
 | `/pr-monitor init` | Copy example template to edit manually |
 | `/pr-monitor init org:foo host:gitlab.com group:bar` | Bootstrap config in one step |
+
+**Local checkout:** `/pr-checkout 123` creates `my-app.123` next to your clone — see `/pr-checkout help`.
 
 Config: `~/.config/personal-skills/pr-monitor/sources.yaml` (or `$PR_MONITOR_CONFIG`)
 ```
@@ -455,7 +457,7 @@ If `repo:...` was passed:
 
 ## Fetch PRs/MRs
 
-Locate the fetch script:
+Locate the fetch script (wrapper → `python3 -m personal_skills.pr_monitor`; stdlib only, no `jq`):
 
 ```shell
 SCRIPT="$(find ~/.claude/plugins/cache/personal-skills-marketplace/personal-skills \
