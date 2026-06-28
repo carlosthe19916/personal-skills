@@ -1,24 +1,23 @@
 from __future__ import annotations
 
-import json
 import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from personal_skills.common.auth import check_provider_auth
 from personal_skills.common.cli_runner import CliRunner, get_runner
 from personal_skills.common.errors import CliError
 from personal_skills.common.git import (
-    cd_command_for,
-    is_managed_worktree_path,
-    parse_worktree_porcelain,
     remote_url,
-    repo_label_from_url,
     resolve_provider_context,
     resolve_repo_root,
+)
+from personal_skills.common.paths import (
+    cd_command_for,
+    repo_label_from_url,
     worktree_path_for,
-    worktree_registered,
 )
 from personal_skills.common.remote import (
     ParsedCheckoutArg,
@@ -27,6 +26,18 @@ from personal_skills.common.remote import (
     local_branch_name,
     parse_checkout_arg,
 )
+from personal_skills.common.worktree_info import (
+    is_managed_worktree_path,
+    parse_worktree_porcelain,
+    worktree_registered,
+)
+
+__all__ = ["CheckoutResult", "checkout", "list_worktrees", "remove"]
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -51,245 +62,6 @@ class CheckoutResult:
             "cd_command": self.cd_command,
             "created": self.created,
         }
-
-
-def validate_repo_match(
-    repo_root: str,
-    parsed: ParsedCheckoutArg,
-    *,
-    runner: CliRunner | None = None,
-) -> None:
-    origin = remote_url(repo_root, runner=runner)
-    if not origin:
-        raise CliError(f"no git remote configured in {repo_root}")
-
-    if parsed.kind == "number":
-        return
-
-    if parsed.kind == "github":
-        actual = github_repo_from_url(origin)
-        if actual != parsed.github_repo:
-            raise CliError(
-                f"URL is for GitHub repo '{parsed.github_repo}' "
-                f"but origin is '{actual or 'unknown'}'.\n"
-                "Run /pr-checkout from the matching clone."
-            )
-        return
-
-    identity = gitlab_identity_from_url(origin)
-    if identity is None:
-        raise CliError(f"could not parse GitLab identity from origin: {origin}")
-    host, path = identity
-    if host != parsed.gitlab_host or path != parsed.gitlab_path:
-        raise CliError(
-            f"URL is for GitLab {parsed.gitlab_host}/{parsed.gitlab_path} "
-            f"but origin is {host}/{path}."
-        )
-
-
-def preflight_auth(
-    provider: str,
-    gitlab_host: str = "gitlab.com",
-    *,
-    runner: CliRunner | None = None,
-) -> None:
-    runner = runner or get_runner()
-    if provider == "github":
-        if not runner.which("gh"):
-            raise CliError("gh CLI is required for GitHub repos but is not installed")
-        if runner.run(["gh", "auth", "status"], check=False).returncode != 0:
-            raise CliError("gh is not authenticated. Run: gh auth login")
-    elif provider == "gitlab":
-        if not runner.which("glab"):
-            raise CliError("glab CLI is required for GitLab repos but is not installed")
-        result = runner.run(
-            ["glab", "auth", "status", "--hostname", gitlab_host],
-            check=False,
-        )
-        if result.returncode != 0:
-            raise CliError(
-                f"glab is not authenticated for {gitlab_host}.\n"
-                f"Run: glab auth login --hostname {gitlab_host}"
-            )
-
-
-def _read_head_ref(repo_root: str, *, runner: CliRunner) -> str:
-    symbolic = runner.run(
-        ["git", "-C", repo_root, "symbolic-ref", "-q", "HEAD"],
-        check=False,
-    )
-    if symbolic.returncode == 0:
-        return symbolic.stdout.strip()
-    sha = runner.run(["git", "-C", repo_root, "rev-parse", "HEAD"], check=False)
-    if sha.returncode != 0:
-        raise CliError("could not read current HEAD before provider checkout")
-    return sha.stdout.strip()
-
-
-def _restore_head_ref(repo_root: str, ref: str, *, runner: CliRunner) -> None:
-    if ref.startswith("refs/heads/"):
-        branch = ref.removeprefix("refs/heads/")
-        result = runner.run(["git", "-C", repo_root, "switch", branch], check=False)
-    else:
-        result = runner.run(
-            ["git", "-C", repo_root, "checkout", "--detach", ref],
-            check=False,
-        )
-    if result.returncode != 0:
-        raise CliError(
-            f"could not restore previous HEAD ({ref}) after provider checkout"
-        )
-
-
-def fetch_pr_branch(
-    repo_root: str,
-    provider: str,
-    number: str,
-    local_branch: str,
-    *,
-    github_repo: str | None = None,
-    gitlab_project: str | None = None,
-    gitlab_host: str = "gitlab.com",
-    force: bool = False,
-    runner: CliRunner | None = None,
-) -> None:
-    runner = runner or get_runner()
-    preflight_auth(provider, gitlab_host, runner=runner)
-    previous = _read_head_ref(repo_root, runner=runner)
-
-    if provider == "github":
-        if not github_repo:
-            raise CliError("could not determine GitHub repo from origin")
-        args = ["gh", "pr", "checkout", number, "-b", local_branch, "-R", github_repo]
-        if force:
-            args.append("-f")
-        result = runner.run(args, cwd=repo_root, check=False)
-        if result.returncode != 0:
-            raise CliError(f"gh pr checkout failed for PR #{number}")
-    else:
-        if not gitlab_project:
-            raise CliError("could not determine GitLab project from origin")
-        if force:
-            delete_local_branch_if_safe(repo_root, local_branch, runner=runner)
-        args = [
-            "glab",
-            "mr",
-            "checkout",
-            number,
-            "-b",
-            local_branch,
-            "-R",
-            gitlab_project,
-        ]
-        result = runner.run(
-            args,
-            cwd=repo_root,
-            check=False,
-            env={"GITLAB_HOST": gitlab_host},
-        )
-        if result.returncode != 0:
-            raise CliError(f"glab mr checkout failed for MR !{number}")
-
-    try:
-        _restore_head_ref(repo_root, previous, runner=runner)
-    except CliError:
-        delete_local_branch_if_safe(repo_root, local_branch, runner=runner)
-        raise
-
-
-def delete_local_branch_if_safe(
-    repo_root: str,
-    branch: str,
-    *,
-    runner: CliRunner | None = None,
-) -> None:
-    runner = runner or get_runner()
-    verify = runner.run(
-        ["git", "-C", repo_root, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
-        check=False,
-    )
-    if verify.returncode != 0:
-        return
-    deleted = runner.run(
-        ["git", "-C", repo_root, "branch", "-D", branch],
-        check=False,
-    )
-    if deleted.returncode != 0:
-        raise CliError(f"could not delete branch {branch} (checked out elsewhere?)")
-
-
-def _number_from_branch(branch: str) -> str | None:
-    match = re.fullmatch(r"(?:pr|mr)-([0-9]+)", branch)
-    return match.group(1) if match else None
-
-
-def _run_worktree_remove(
-    repo_root: str,
-    wt_path: str,
-    *,
-    runner: CliRunner,
-) -> None:
-    result = runner.run(
-        ["git", "-C", repo_root, "worktree", "remove", "--force", wt_path],
-        check=False,
-    )
-    if result.returncode != 0:
-        raise CliError(f"git worktree remove failed for {wt_path}")
-
-
-def remove_worktree_if_exists(
-    repo_root: str,
-    wt_path: str,
-    branch: str,
-    *,
-    runner: CliRunner | None = None,
-) -> None:
-    runner = runner or get_runner()
-    if worktree_registered(repo_root, wt_path, runner=runner):
-        _run_worktree_remove(repo_root, wt_path, runner=runner)
-    elif Path(wt_path).exists():
-        if is_managed_worktree_path(repo_root, wt_path, runner=runner):
-            try:
-                _run_worktree_remove(repo_root, wt_path, runner=runner)
-            except CliError:
-                number = _number_from_branch(branch)
-                expected = worktree_path_for(repo_root, number) if number else None
-                if expected != wt_path:
-                    raise CliError(
-                        f"git worktree remove failed for {wt_path} "
-                        "(path does not match expected worktree location)"
-                    ) from None
-                shutil.rmtree(wt_path)
-        else:
-            raise CliError(
-                f"{wt_path} exists but is not a worktree for this repository.\n"
-                "Move or remove it manually before retrying."
-            )
-    delete_local_branch_if_safe(repo_root, branch, runner=runner)
-
-
-def ensure_branch_available_for_fetch(
-    repo_root: str,
-    branch: str,
-    *,
-    force: bool = False,
-    runner: CliRunner | None = None,
-) -> None:
-    runner = runner or get_runner()
-    verify = runner.run(
-        ["git", "-C", repo_root, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
-        check=False,
-    )
-    if verify.returncode != 0:
-        return
-    if force:
-        # gh/glab replace existing branches; avoid deleting before provider checkout.
-        return
-    number = branch.split("-", 1)[-1]
-    raise CliError(
-        f"branch {branch} already exists.\n"
-        f"Use --force to replace it, or: /pr-checkout remove {number}"
-    )
 
 
 def checkout(
@@ -331,9 +103,9 @@ def checkout(
                 f"worktree already exists at {wt_path}\n"
                 f"Use --force to remove and recreate, or: /pr-checkout remove {number}"
             )
-        remove_worktree_if_exists(repo_root, wt_path, local_branch, runner=runner)
+        _remove_worktree_if_exists(repo_root, wt_path, local_branch, runner=runner)
 
-    ensure_branch_available_for_fetch(repo_root, local_branch, force=force, runner=runner)
+    _ensure_branch_available(repo_root, local_branch, force=force, runner=runner)
 
     github_repo = github_repo_from_url(url) if provider == "github" else None
     gitlab_project: str | None = None
@@ -341,7 +113,7 @@ def checkout(
         identity = gitlab_identity_from_url(url)
         gitlab_project = identity[1] if identity else None
 
-    fetch_pr_branch(
+    _fetch_pr_branch(
         repo_root,
         provider,
         number,
@@ -358,65 +130,18 @@ def checkout(
         check=False,
     )
     if add_result.returncode != 0:
-        delete_local_branch_if_safe(repo_root, local_branch, runner=runner)
+        _delete_branch_if_safe(repo_root, local_branch, runner=runner)
         raise CliError("git worktree add failed")
-
-    cd_command = cd_command_for(wt_path)
-    repo_label = repo_label_from_url(url, repo_root)
 
     return CheckoutResult(
         repo_root=repo_root,
         provider=provider,
         number=number,
-        repo=repo_label,
+        repo=repo_label_from_url(url, repo_root),
         branch=local_branch,
         worktree_path=wt_path,
-        cd_command=cd_command,
+        cd_command=cd_command_for(wt_path),
     )
-
-
-def _list_item(
-    repo_root: str,
-    repo_name: str,
-    wt_path: str,
-    branch: str,
-    head: str,
-) -> dict[str, Any] | None:
-    parent = str(Path(repo_root).parent)
-    expected_prefix = f"{parent}/{repo_name}."
-    if not wt_path.startswith(expected_prefix):
-        return None
-
-    dir_name = Path(wt_path).name
-    pr_match = re.fullmatch(r"pr-([0-9]+)", branch)
-    mr_match = re.fullmatch(r"mr-([0-9]+)", branch)
-
-    if pr_match:
-        number = int(pr_match.group(1))
-        provider = "github"
-        prmr = f"PR #{number}"
-    elif mr_match:
-        number = int(mr_match.group(1))
-        provider = "gitlab"
-        prmr = f"MR !{number}"
-    else:
-        suffix = dir_name.removeprefix(f"{repo_name}.")
-        if not re.fullmatch(r"[0-9]+", suffix):
-            return None
-        number = int(suffix)
-        provider = "unknown"
-        prmr = f"#{number}"
-
-    return {
-        "worktree_path": wt_path,
-        "directory": dir_name,
-        "branch": branch,
-        "provider": provider,
-        "number": number,
-        "prmr": prmr,
-        "head": head[:7],
-        "cd_command": cd_command_for(wt_path),
-    }
 
 
 def list_worktrees(
@@ -502,9 +227,9 @@ def remove(
                 f"refusing to remove unrelated directory {wt_path}\n"
                 "Move or remove it manually; --force cannot override this safety check."
             )
-        remove_worktree_if_exists(repo_root, wt_path, local_branch, runner=runner)
+        _remove_worktree_if_exists(repo_root, wt_path, local_branch, runner=runner)
     else:
-        delete_local_branch_if_safe(repo_root, local_branch, runner=runner)
+        _delete_branch_if_safe(repo_root, local_branch, runner=runner)
 
     return {
         "repo_root": repo_root,
@@ -516,5 +241,277 @@ def remove(
     }
 
 
-def emit_json(data: dict[str, Any]) -> str:
-    return json.dumps(data, indent=2)
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
+
+def validate_repo_match(
+    repo_root: str,
+    parsed: ParsedCheckoutArg,
+    *,
+    runner: CliRunner | None = None,
+) -> None:
+    origin = remote_url(repo_root, runner=runner)
+    if not origin:
+        raise CliError(f"no git remote configured in {repo_root}")
+
+    if parsed.kind == "number":
+        return
+
+    if parsed.kind == "github":
+        actual = github_repo_from_url(origin)
+        if actual != parsed.github_repo:
+            raise CliError(
+                f"URL is for GitHub repo '{parsed.github_repo}' "
+                f"but origin is '{actual or 'unknown'}'.\n"
+                "Run /pr-checkout from the matching clone."
+            )
+        return
+
+    identity = gitlab_identity_from_url(origin)
+    if identity is None:
+        raise CliError(f"could not parse GitLab identity from origin: {origin}")
+    host, path = identity
+    if host != parsed.gitlab_host or path != parsed.gitlab_path:
+        raise CliError(
+            f"URL is for GitLab {parsed.gitlab_host}/{parsed.gitlab_path} "
+            f"but origin is {host}/{path}."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Provider fetch (gh / glab)
+# ---------------------------------------------------------------------------
+
+
+def _read_head_ref(repo_root: str, *, runner: CliRunner) -> str:
+    symbolic = runner.run(
+        ["git", "-C", repo_root, "symbolic-ref", "-q", "HEAD"],
+        check=False,
+    )
+    if symbolic.returncode == 0:
+        return symbolic.stdout.strip()
+    sha = runner.run(["git", "-C", repo_root, "rev-parse", "HEAD"], check=False)
+    if sha.returncode != 0:
+        raise CliError("could not read current HEAD before provider checkout")
+    return sha.stdout.strip()
+
+
+def _restore_head_ref(repo_root: str, ref: str, *, runner: CliRunner) -> None:
+    if ref.startswith("refs/heads/"):
+        branch = ref.removeprefix("refs/heads/")
+        result = runner.run(["git", "-C", repo_root, "switch", branch], check=False)
+    else:
+        result = runner.run(
+            ["git", "-C", repo_root, "checkout", "--detach", ref],
+            check=False,
+        )
+    if result.returncode != 0:
+        raise CliError(
+            f"could not restore previous HEAD ({ref}) after provider checkout"
+        )
+
+
+def _fetch_pr_branch(
+    repo_root: str,
+    provider: str,
+    number: str,
+    local_branch: str,
+    *,
+    github_repo: str | None = None,
+    gitlab_project: str | None = None,
+    gitlab_host: str = "gitlab.com",
+    force: bool = False,
+    runner: CliRunner | None = None,
+) -> None:
+    runner = runner or get_runner()
+    check_provider_auth(provider, gitlab_host, runner=runner)
+    previous = _read_head_ref(repo_root, runner=runner)
+
+    if provider == "github":
+        if not github_repo:
+            raise CliError("could not determine GitHub repo from origin")
+        args = ["gh", "pr", "checkout", number, "-b", local_branch, "-R", github_repo]
+        if force:
+            args.append("-f")
+        result = runner.run(args, cwd=repo_root, check=False)
+        if result.returncode != 0:
+            raise CliError(f"gh pr checkout failed for PR #{number}")
+    else:
+        if not gitlab_project:
+            raise CliError("could not determine GitLab project from origin")
+        if force:
+            _delete_branch_if_safe(repo_root, local_branch, runner=runner)
+        args = [
+            "glab",
+            "mr",
+            "checkout",
+            number,
+            "-b",
+            local_branch,
+            "-R",
+            gitlab_project,
+        ]
+        result = runner.run(
+            args,
+            cwd=repo_root,
+            check=False,
+            env={"GITLAB_HOST": gitlab_host},
+        )
+        if result.returncode != 0:
+            raise CliError(f"glab mr checkout failed for MR !{number}")
+
+    try:
+        _restore_head_ref(repo_root, previous, runner=runner)
+    except CliError:
+        _delete_branch_if_safe(repo_root, local_branch, runner=runner)
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Branch management
+# ---------------------------------------------------------------------------
+
+
+def _delete_branch_if_safe(
+    repo_root: str,
+    branch: str,
+    *,
+    runner: CliRunner | None = None,
+) -> None:
+    runner = runner or get_runner()
+    verify = runner.run(
+        ["git", "-C", repo_root, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+        check=False,
+    )
+    if verify.returncode != 0:
+        return
+    deleted = runner.run(
+        ["git", "-C", repo_root, "branch", "-D", branch],
+        check=False,
+    )
+    if deleted.returncode != 0:
+        raise CliError(f"could not delete branch {branch} (checked out elsewhere?)")
+
+
+def _ensure_branch_available(
+    repo_root: str,
+    branch: str,
+    *,
+    force: bool = False,
+    runner: CliRunner | None = None,
+) -> None:
+    runner = runner or get_runner()
+    verify = runner.run(
+        ["git", "-C", repo_root, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+        check=False,
+    )
+    if verify.returncode != 0:
+        return
+    if force:
+        return
+    number = branch.split("-", 1)[-1]
+    raise CliError(
+        f"branch {branch} already exists.\n"
+        f"Use --force to replace it, or: /pr-checkout remove {number}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Worktree lifecycle
+# ---------------------------------------------------------------------------
+
+
+def _run_worktree_remove(
+    repo_root: str,
+    wt_path: str,
+    *,
+    runner: CliRunner,
+) -> None:
+    result = runner.run(
+        ["git", "-C", repo_root, "worktree", "remove", "--force", wt_path],
+        check=False,
+    )
+    if result.returncode != 0:
+        raise CliError(f"git worktree remove failed for {wt_path}")
+
+
+def _remove_worktree_if_exists(
+    repo_root: str,
+    wt_path: str,
+    branch: str,
+    *,
+    runner: CliRunner | None = None,
+) -> None:
+    runner = runner or get_runner()
+    if worktree_registered(repo_root, wt_path, runner=runner):
+        _run_worktree_remove(repo_root, wt_path, runner=runner)
+    elif Path(wt_path).exists():
+        if is_managed_worktree_path(repo_root, wt_path, runner=runner):
+            try:
+                _run_worktree_remove(repo_root, wt_path, runner=runner)
+            except CliError:
+                number = _number_from_branch(branch)
+                expected = worktree_path_for(repo_root, number) if number else None
+                if expected != wt_path:
+                    raise CliError(
+                        f"git worktree remove failed for {wt_path} "
+                        "(path does not match expected worktree location)"
+                    ) from None
+                shutil.rmtree(wt_path)
+        else:
+            raise CliError(
+                f"{wt_path} exists but is not a worktree for this repository.\n"
+                "Move or remove it manually before retrying."
+            )
+    _delete_branch_if_safe(repo_root, branch, runner=runner)
+
+
+def _number_from_branch(branch: str) -> str | None:
+    match = re.fullmatch(r"(?:pr|mr)-([0-9]+)", branch)
+    return match.group(1) if match else None
+
+
+def _list_item(
+    repo_root: str,
+    repo_name: str,
+    wt_path: str,
+    branch: str,
+    head: str,
+) -> dict[str, Any] | None:
+    parent = str(Path(repo_root).parent)
+    expected_prefix = f"{parent}/{repo_name}."
+    if not wt_path.startswith(expected_prefix):
+        return None
+
+    dir_name = Path(wt_path).name
+    pr_match = re.fullmatch(r"pr-([0-9]+)", branch)
+    mr_match = re.fullmatch(r"mr-([0-9]+)", branch)
+
+    if pr_match:
+        number = int(pr_match.group(1))
+        provider = "github"
+        prmr = f"PR #{number}"
+    elif mr_match:
+        number = int(mr_match.group(1))
+        provider = "gitlab"
+        prmr = f"MR !{number}"
+    else:
+        suffix = dir_name.removeprefix(f"{repo_name}.")
+        if not re.fullmatch(r"[0-9]+", suffix):
+            return None
+        number = int(suffix)
+        provider = "unknown"
+        prmr = f"#{number}"
+
+    return {
+        "worktree_path": wt_path,
+        "directory": dir_name,
+        "branch": branch,
+        "provider": provider,
+        "number": number,
+        "prmr": prmr,
+        "head": head[:7],
+        "cd_command": cd_command_for(wt_path),
+    }

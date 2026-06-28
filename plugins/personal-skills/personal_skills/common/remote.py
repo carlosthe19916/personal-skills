@@ -11,6 +11,22 @@ if TYPE_CHECKING:
 
 Provider = Literal["github", "gitlab", "unknown"]
 
+__all__ = [
+    "Provider",
+    "ParsedCheckoutArg",
+    "ProviderContext",
+    "normalize_gitlab_host",
+    "detect_provider",
+    "probe_provider",
+    "resolve_provider_from_url",
+    "github_repo_from_url",
+    "gitlab_identity_from_url",
+    "gitlab_host_from_url",
+    "parse_checkout_arg",
+    "local_branch_name",
+    "parse_repo_spec",
+]
+
 
 @dataclass(frozen=True)
 class ParsedCheckoutArg:
@@ -35,7 +51,7 @@ def normalize_gitlab_host(host: str) -> str:
     return host
 
 
-def looks_like_hostname(candidate: str) -> bool:
+def _looks_like_hostname(candidate: str) -> bool:
     return "." in candidate or candidate == "gitlab.com"
 
 
@@ -52,7 +68,7 @@ KNOWN_NON_GITLAB_HOST_FRAGMENTS = (
 )
 
 
-def remote_hostname(url: str) -> str | None:
+def _remote_hostname(url: str) -> str | None:
     ssh = re.match(r"^git@([^:]+):", url)
     if ssh:
         return normalize_gitlab_host(ssh.group(1))
@@ -100,7 +116,7 @@ def detect_provider(url: str) -> Provider:
     if github_repo_from_url(url):
         return "github"
 
-    host = remote_hostname(url)
+    host = _remote_hostname(url)
     if host and _looks_like_non_gitlab_host(host):
         return "unknown"
 
@@ -145,7 +161,7 @@ def resolve_provider_from_url(url: str, *, runner: CliRunner) -> Provider:
     provider = detect_provider(url)
     if provider != "unknown":
         return provider
-    host = remote_hostname(url)
+    host = _remote_hostname(url)
     if host and _looks_like_non_gitlab_host(host):
         return "unknown"
     return probe_provider(url, runner=runner)
@@ -233,7 +249,7 @@ def parse_repo_spec(spec: str, default_gitlab_host: str = "gitlab.com") -> tuple
         rest = spec.removeprefix("gitlab:")
         if ":" in rest:
             candidate_host, candidate_path = rest.split(":", 1)
-            if looks_like_hostname(candidate_host) and candidate_path:
+            if _looks_like_hostname(candidate_host) and candidate_path:
                 return "gitlab", normalize_gitlab_host(candidate_host), candidate_path
         return "gitlab", normalize_gitlab_host(default_gitlab_host), rest
 

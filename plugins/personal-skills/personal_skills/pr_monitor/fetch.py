@@ -5,6 +5,7 @@ import re
 import sys
 from typing import Any, Literal
 
+from personal_skills.common.auth import check_provider_auth
 from personal_skills.common.cli_runner import CliRunner, get_runner
 from personal_skills.common.errors import CliError
 from personal_skills.common.remote import normalize_gitlab_host, parse_repo_spec
@@ -164,24 +165,9 @@ def preflight_auth(
     gitlab_hosts = {host for provider, host, _ in repos if provider == "gitlab"}
 
     if need_github:
-        if not runner.which("gh"):
-            raise CliError("gh CLI is required for GitHub repos but is not installed")
-        if runner.run(["gh", "auth", "status"], check=False).returncode != 0:
-            raise CliError("gh is not authenticated. Run: gh auth login")
-
-    if gitlab_hosts:
-        if not runner.which("glab"):
-            raise CliError("glab CLI is required for GitLab repos but is not installed")
-        for host in gitlab_hosts:
-            result = runner.run(
-                ["glab", "auth", "status", "--hostname", host],
-                check=False,
-            )
-            if result.returncode != 0:
-                raise CliError(
-                    f"glab is not authenticated for {host}.\n"
-                    f"Run: glab auth login --hostname {host}"
-                )
+        check_provider_auth("github", runner=runner)
+    for host in gitlab_hosts:
+        check_provider_auth("gitlab", host, runner=runner)
 
 
 def fetch_github_prs(

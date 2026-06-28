@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
 from personal_skills.common.errors import CliError
-from personal_skills.common.git import expand_path
+from personal_skills.common.paths import expand_path
 from personal_skills.pr_checkout import worktree
 
 
@@ -66,17 +67,17 @@ def main(argv: list[str] | None = None) -> int:
                 f"  {result.cd_command}",
                 file=sys.stderr,
             )
-            print(worktree.emit_json(result.to_dict()))
+            print(json.dumps(result.to_dict(), indent=2))
         elif args.command == "list":
             data = worktree.list_worktrees(repo_path=expand_path(args.repo_path))
-            print(worktree.emit_json(data))
+            print(json.dumps(data, indent=2))
         elif args.command == "remove":
             data = worktree.remove(
                 args.number,
                 force=args.force,
                 repo_path=expand_path(args.repo_path),
             )
-            print(worktree.emit_json(data))
+            print(json.dumps(data, indent=2))
         else:
             usage()
             return 1

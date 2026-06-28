@@ -7,12 +7,16 @@ import pytest
 
 from personal_skills.common.errors import CliError
 from personal_skills.common.git import (
-    cd_command_for,
-    is_managed_worktree_path,
-    parse_worktree_porcelain,
     resolve_fetch_remote,
     resolve_provider_context,
+)
+from personal_skills.common.paths import (
+    cd_command_for,
     worktree_path_for,
+)
+from personal_skills.common.worktree_info import (
+    is_managed_worktree_path,
+    parse_worktree_porcelain,
 )
 from personal_skills.common.remote import local_branch_name
 from personal_skills.pr_checkout import worktree
@@ -240,7 +244,7 @@ def test_worktree_remove_failure_raises_cli_error() -> None:
     )
 
     with pytest.raises(CliError, match="git worktree remove failed"):
-        worktree.remove_worktree_if_exists(repo_root, wt_path, "pr-123", runner=runner)
+        worktree._remove_worktree_if_exists(repo_root, wt_path, "pr-123", runner=runner)
 
 
 def test_checkout_requires_gh_auth() -> None:
@@ -361,7 +365,7 @@ def test_fetch_pr_branch_restore_head_failure() -> None:
         },
     )
     with pytest.raises(CliError, match="could not restore previous HEAD"):
-        worktree.fetch_pr_branch(
+        worktree._fetch_pr_branch(
             repo_root,
             "github",
             "123",
@@ -404,7 +408,7 @@ def test_fetch_pr_branch_github_force_passes_flag() -> None:
             ),
         },
     )
-    worktree.fetch_pr_branch(
+    worktree._fetch_pr_branch(
         repo_root,
         "github",
         "123",
@@ -461,7 +465,7 @@ def test_fetch_pr_branch_gitlab_force_deletes_existing_branch() -> None:
             ),
         },
     )
-    worktree.fetch_pr_branch(
+    worktree._fetch_pr_branch(
         repo_root,
         "gitlab",
         "42",
