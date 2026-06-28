@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from personal_skills.common.errors import CliError
+
+if TYPE_CHECKING:
+    from personal_skills.common.cli_runner import CliRunner
 
 Provider = Literal["github", "gitlab", "unknown"]
 
@@ -42,6 +45,10 @@ KNOWN_NON_GITLAB_HOST_FRAGMENTS = (
     "dev.azure.com",
     "visualstudio.com",
     "sourceforge.net",
+    "codeberg.org",
+    "gitea.io",
+    "gitea.com",
+    "forgejo",
 )
 
 
@@ -58,6 +65,14 @@ def remote_hostname(url: str) -> str | None:
 def _looks_like_non_gitlab_host(host: str) -> bool:
     lowered = host.lower()
     return any(fragment in lowered for fragment in KNOWN_NON_GITLAB_HOST_FRAGMENTS)
+
+
+def _explicit_gitlab_signal(host: str, project_path: str) -> bool:
+    lowered = host.lower()
+    if "gitlab" in lowered or lowered == "gitlab.com":
+        return True
+    # Nested groups (group/subgroup/project) are typical GitLab layout.
+    return project_path.count("/") >= 2
 
 
 def detect_provider(url: str) -> Provider:
@@ -89,10 +104,51 @@ def detect_provider(url: str) -> Provider:
     if host and _looks_like_non_gitlab_host(host):
         return "unknown"
 
-    if gitlab_identity_from_url(url):
+    identity = gitlab_identity_from_url(url)
+    if identity and _explicit_gitlab_signal(identity[0], identity[1]):
         return "gitlab"
 
     return "unknown"
+
+
+def probe_provider(url: str, *, runner: CliRunner) -> Provider:
+    """Resolve ambiguous git remotes via gh/glab repo view (requires auth)."""
+    identity = gitlab_identity_from_url(url)
+    if identity is None:
+        return "unknown"
+
+    host, path = identity
+    if _looks_like_non_gitlab_host(host):
+        return "unknown"
+
+    if runner.which("gh"):
+        if host == "github.com" or "github" in host.lower():
+            args = ["gh", "repo", "view", path, "--json", "name"]
+        else:
+            args = ["gh", "repo", "view", "-R", f"{host}/{path}", "--json", "name"]
+        if runner.run(args, check=False).returncode == 0:
+            return "github"
+
+    if runner.which("glab"):
+        result = runner.run(
+            ["glab", "repo", "view", path],
+            check=False,
+            env={"GITLAB_HOST": host},
+        )
+        if result.returncode == 0:
+            return "gitlab"
+
+    return "unknown"
+
+
+def resolve_provider_from_url(url: str, *, runner: CliRunner) -> Provider:
+    provider = detect_provider(url)
+    if provider != "unknown":
+        return provider
+    host = remote_hostname(url)
+    if host and _looks_like_non_gitlab_host(host):
+        return "unknown"
+    return probe_provider(url, runner=runner)
 
 
 def github_repo_from_url(url: str) -> str | None:

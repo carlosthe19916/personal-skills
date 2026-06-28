@@ -12,6 +12,7 @@ from personal_skills.common.remote import (
     gitlab_host_from_url,
     gitlab_identity_from_url,
     github_repo_from_url,
+    resolve_provider_from_url,
 )
 
 
@@ -71,7 +72,7 @@ def resolve_provider_context(
     if not url:
         raise CliError(f"no git remote configured in {repo_root}")
 
-    provider = detect_provider(url)
+    provider = resolve_provider_from_url(url, runner=runner)
     if provider == "unknown":
         raise CliError(f"remote must be GitHub or GitLab (got: {url})")
 

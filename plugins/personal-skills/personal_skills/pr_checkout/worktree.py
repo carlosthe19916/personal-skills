@@ -195,7 +195,11 @@ def fetch_pr_branch(
         if result.returncode != 0:
             raise CliError(f"glab mr checkout failed for MR !{number}")
 
-    _restore_head_ref(repo_root, previous, runner=runner)
+    try:
+        _restore_head_ref(repo_root, previous, runner=runner)
+    except CliError:
+        delete_local_branch_if_safe(repo_root, local_branch, runner=runner)
+        raise
 
 
 def delete_local_branch_if_safe(
@@ -359,10 +363,7 @@ def checkout(
         check=False,
     )
     if add_result.returncode != 0:
-        runner.run(
-            ["git", "-C", repo_root, "branch", "-D", local_branch],
-            check=False,
-        )
+        delete_local_branch_if_safe(repo_root, local_branch, runner=runner)
         raise CliError("git worktree add failed")
 
     cd_command = cd_command_for(wt_path)

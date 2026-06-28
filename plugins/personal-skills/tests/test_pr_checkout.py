@@ -288,6 +288,9 @@ def test_checkout_gitlab_uses_glab() -> None:
             ("git", "-C", repo_root, "remote", "get-url", "origin"): subprocess.CompletedProcess(
                 [], 0, "git@code.example.com:group/project.git", ""
             ),
+            ("glab", "repo", "view", "group/project"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
             ("git", "-C", repo_root, "show-ref", "--verify", "--quiet", "refs/heads/mr-42"): subprocess.CompletedProcess(
                 [], 1, "", ""
             ),
@@ -316,7 +319,14 @@ def test_checkout_gitlab_uses_glab() -> None:
 
 def test_fetch_pr_branch_restore_head_failure() -> None:
     repo_root = "/home/user/git/my-app"
-    runner = MockCliRunner(
+    calls: list[list[str]] = []
+
+    class RecordingRunner(MockCliRunner):
+        def run(self, args, **kwargs):
+            calls.append(list(args))
+            return super().run(args, **kwargs)
+
+    runner = RecordingRunner(
         which={"gh"},
         responses={
             ("gh", "auth", "status"): subprocess.CompletedProcess([], 0, "", ""),
@@ -336,6 +346,18 @@ def test_fetch_pr_branch_restore_head_failure() -> None:
             ("git", "-C", repo_root, "switch", "main"): subprocess.CompletedProcess(
                 [], 1, "", "failed to switch"
             ),
+            (
+                "git",
+                "-C",
+                repo_root,
+                "show-ref",
+                "--verify",
+                "--quiet",
+                "refs/heads/pr-123",
+            ): subprocess.CompletedProcess([], 0, "", ""),
+            ("git", "-C", repo_root, "branch", "-D", "pr-123"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
         },
     )
     with pytest.raises(CliError, match="could not restore previous HEAD"):
@@ -347,6 +369,51 @@ def test_fetch_pr_branch_restore_head_failure() -> None:
             github_repo="example/my-app",
             runner=runner,
         )
+    assert any("branch" in " ".join(c) and "-D" in c and "pr-123" in c for c in calls)
+
+
+def test_fetch_pr_branch_github_force_passes_flag() -> None:
+    repo_root = "/home/user/git/my-app"
+    calls: list[list[str]] = []
+
+    class RecordingRunner(MockCliRunner):
+        def run(self, args, **kwargs):
+            calls.append(list(args))
+            return super().run(args, **kwargs)
+
+    runner = RecordingRunner(
+        which={"gh"},
+        responses={
+            ("gh", "auth", "status"): subprocess.CompletedProcess([], 0, "", ""),
+            ("git", "-C", repo_root, "symbolic-ref", "-q", "HEAD"): subprocess.CompletedProcess(
+                [], 0, "refs/heads/main", ""
+            ),
+            (
+                "gh",
+                "pr",
+                "checkout",
+                "123",
+                "-b",
+                "pr-123",
+                "-R",
+                "example/my-app",
+                "-f",
+            ): subprocess.CompletedProcess([], 0, "", ""),
+            ("git", "-C", repo_root, "switch", "main"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+        },
+    )
+    worktree.fetch_pr_branch(
+        repo_root,
+        "github",
+        "123",
+        "pr-123",
+        github_repo="example/my-app",
+        force=True,
+        runner=runner,
+    )
+    assert any("-f" in c for c in calls)
 
 
 def test_fetch_pr_branch_gitlab_force_deletes_existing_branch() -> None:
@@ -432,11 +499,24 @@ def test_resolve_provider_context_custom_gitlab_host(tmp_path: Path) -> None:
     repo = tmp_path / "my-app"
     repo.mkdir()
     runner = MockCliRunner(
+        which={"glab"},
         responses={
             ("git", "-C", str(repo), "remote", "get-url", "origin"): subprocess.CompletedProcess(
                 [], 0, "git@code.example.com:group/project.git", ""
             ),
-        }
+            (
+                "gh",
+                "repo",
+                "view",
+                "-R",
+                "code.example.com/group/project",
+                "--json",
+                "name",
+            ): subprocess.CompletedProcess([], 1, "", ""),
+            ("glab", "repo", "view", "group/project"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+        },
     )
     ctx = resolve_provider_context(str(repo), runner=runner)
     assert ctx.provider == "gitlab"

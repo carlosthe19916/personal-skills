@@ -8,7 +8,7 @@ allowed-tools: Read Bash(git *) Bash(gh *) Bash(glab *) Bash(python3 *)
 
 # PR Checkout
 
-Check out a GitHub pull request or GitLab merge request into a **sibling git worktree** next to your local clone, using native `git fetch` + `git worktree add`.
+Check out a GitHub pull request or GitLab merge request into a **sibling git worktree** next to your local clone, using `gh pr checkout` / `glab mr checkout` plus `git worktree add`.
 
 ## Naming convention
 

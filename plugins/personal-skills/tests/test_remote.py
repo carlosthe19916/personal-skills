@@ -10,6 +10,8 @@ from personal_skills.common.remote import (
     normalize_gitlab_host,
     parse_checkout_arg,
     parse_repo_spec,
+    probe_provider,
+    resolve_provider_from_url,
 )
 
 
@@ -34,9 +36,12 @@ def test_normalize_gitlab_host(host: str, expected: str) -> None:
         ("https://github.mycompany.com/org/repo", "github"),
         ("git@gitlab.example.com:group/project.git", "gitlab"),
         ("https://gitlab.com/group/project", "gitlab"),
-        ("git@code.example.com:group/project.git", "gitlab"),
-        ("https://code.example.com/group/project", "gitlab"),
+        ("git@code.example.com:group/project.git", "unknown"),
+        ("https://code.example.com/group/project", "unknown"),
+        ("git@code.example.com:group/sub/project.git", "gitlab"),
+        ("git@git.acme.com:org/repo.git", "unknown"),
         ("git@bitbucket.org:team/repo.git", "unknown"),
+        ("git@codeberg.org:user/repo.git", "unknown"),
     ],
 )
 def test_detect_provider(url: str, expected: str) -> None:
@@ -108,3 +113,53 @@ def test_parse_checkout_arg(arg: str, kind: str, number: str, extra: dict) -> No
 )
 def test_parse_repo_spec(spec: str, default_host: str, expected: tuple) -> None:
     assert parse_repo_spec(spec, default_host) == expected
+
+
+def test_probe_provider_prefers_github_for_ghe() -> None:
+    import subprocess
+
+    from tests.conftest import MockCliRunner
+
+    runner = MockCliRunner(
+        which={"gh", "glab"},
+        responses={
+            (
+                "gh",
+                "repo",
+                "view",
+                "-R",
+                "git.acme.com/org/repo",
+                "--json",
+                "name",
+            ): subprocess.CompletedProcess([], 0, "{}", ""),
+        },
+    )
+    url = "git@git.acme.com:org/repo.git"
+    assert detect_provider(url) == "unknown"
+    assert probe_provider(url, runner=runner) == "github"
+
+
+def test_probe_provider_resolves_custom_gitlab_host() -> None:
+    import subprocess
+
+    from tests.conftest import MockCliRunner
+
+    runner = MockCliRunner(
+        which={"gh", "glab"},
+        responses={
+            (
+                "gh",
+                "repo",
+                "view",
+                "-R",
+                "code.example.com/group/project",
+                "--json",
+                "name",
+            ): subprocess.CompletedProcess([], 1, "", ""),
+            ("glab", "repo", "view", "group/project"): subprocess.CompletedProcess(
+                [], 0, "", ""
+            ),
+        },
+    )
+    url = "git@code.example.com:group/project.git"
+    assert resolve_provider_from_url(url, runner=runner) == "gitlab"

@@ -187,23 +187,27 @@ def preflight_auth(
 def fetch_github_prs(
     repo: str,
     *,
+    author: str = "",
     runner: CliRunner | None = None,
 ) -> list[dict[str, Any]]:
     runner = runner or get_runner()
+    args = [
+        "gh",
+        "pr",
+        "list",
+        "-R",
+        repo,
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        GITHUB_PR_JSON,
+    ]
+    if author:
+        args.extend(["--author", author])
     result = runner.run(
-        [
-            "gh",
-            "pr",
-            "list",
-            "-R",
-            repo,
-            "--state",
-            "open",
-            "--limit",
-            "100",
-            "--json",
-            GITHUB_PR_JSON,
-        ],
+        args,
         check=False,
     )
     if result.returncode != 0:
@@ -267,7 +271,7 @@ def fetch_prs(
     for provider, host, path in repos:
         if provider == "github":
             print(f"Fetching github:{path} ...", file=sys.stderr)
-            merged.extend(fetch_github_prs(path, runner=runner))
+            merged.extend(fetch_github_prs(path, author=author, runner=runner))
         elif provider == "gitlab":
             print(f"Fetching gitlab:{host}:{path} ...", file=sys.stderr)
             merged.extend(

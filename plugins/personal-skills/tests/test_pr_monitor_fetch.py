@@ -57,6 +57,40 @@ def test_apply_filters_author_and_mode() -> None:
     assert len(fetch.apply_filters(items, mode="ready")) == 1
 
 
+def test_fetch_github_prs_passes_author_to_gh() -> None:
+    github_raw = (FIXTURES / "github_prs_raw.json").read_text()
+    calls: list[list[str]] = []
+
+    class RecordingRunner(MockCliRunner):
+        def run(self, args, **kwargs):
+            calls.append(list(args))
+            return super().run(args, **kwargs)
+
+    runner = RecordingRunner(
+        which={"gh"},
+        responses={
+            (
+                "gh",
+                "pr",
+                "list",
+                "-R",
+                "owner/repo",
+                "--state",
+                "open",
+                "--limit",
+                "100",
+                "--json",
+                fetch.GITHUB_PR_JSON,
+                "--author",
+                "alice",
+            ): subprocess.CompletedProcess([], 0, github_raw, ""),
+        },
+    )
+    items = fetch.fetch_github_prs("owner/repo", author="alice", runner=runner)
+    assert items
+    assert any("--author" in c and "alice" in c for c in calls)
+
+
 def test_fetch_prs_merged_mocked() -> None:
     github_raw = (FIXTURES / "github_prs_raw.json").read_text()
     runner = MockCliRunner(
