@@ -17,7 +17,9 @@ def test_pr_checkout_help() -> None:
     with patch("sys.stderr", stderr):
         code = pr_checkout_main.main(["--help"])
     assert code == 1
-    assert "my-app.123" in stderr.getvalue()
+    output = stderr.getvalue()
+    assert "my-app.123" in output
+    assert "--remote" in output
 
 
 def test_pr_checkout_invalid_target(tmp_path, monkeypatch) -> None:

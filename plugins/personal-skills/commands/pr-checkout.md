@@ -73,6 +73,7 @@ When `$ARGUMENTS` contains `help`, print:
 | `/pr-checkout list` | Worktrees for repo in cwd |
 | `/pr-checkout list path:~/git/my-org/my-app` | Worktrees for explicit path |
 | `/pr-checkout remove 123` | Remove `{repo}.123` worktree |
+| `/pr-checkout remove remote:upstream 1092` | Remove using upstream for provider detection |
 | `/pr-checkout remove path:~/git/my-org/my-app 123` | Remove from another clone |
 
 After checkout, run the printed `cd` command to enter the worktree.
@@ -146,11 +147,12 @@ Repo: `{repo_root}`
 
 ## Remove workflow
 
-1. Parse optional `path:DIR` and required number.
+1. Parse optional `path:DIR`, optional `remote:NAME` (default `origin`), and required number.
 2. Run:
    ```shell
    bash "$SCRIPT" remove [--remote NAME] [--path "$DIR"] [--force] "$NUMBER"
    ```
+   When `$ARGUMENTS` includes `remote:upstream`, pass `--remote upstream`.
 3. Confirm removal (path removed from `git worktree list`).
 4. **Stop**.
 

@@ -25,14 +25,15 @@ First run: `/pr-monitor setup` then `/pr-monitor list`. Filters: `org:`, `group:
 
 ### pr-checkout
 
-PR/MR into a sibling worktree `{repo}.{number}` via `git worktree add` (run inside the clone).
+PR/MR into a sibling worktree `{repo}.{number}` via `gh`/`glab` checkout + `git worktree add` (run inside the clone). Use `remote:upstream` when the PR is on a fork's parent repo.
 
 | Command | Description |
 |---------|-------------|
-| `/pr-checkout 123` | Create `my-app.123` next to clone |
+| `/pr-checkout 123` | Create `my-app.123` next to clone (uses `origin`) |
+| `/pr-checkout remote:upstream 1092` | Checkout PR from upstream remote (fork clones) |
 | `/pr-checkout --force 123` | Recreate existing worktree |
 | `/pr-checkout list` | List worktrees (`path:~/git/my-org/my-app` optional) |
-| `/pr-checkout remove 123` | Remove worktree + branch |
+| `/pr-checkout remove 123` | Remove worktree + branch (`remote:NAME` optional) |
 | `/pr-checkout help` | Cheat sheet |
 
 Prints a copy-paste `cd` path after checkout.
