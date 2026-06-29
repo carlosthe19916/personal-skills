@@ -73,7 +73,7 @@ After new releases are pushed to GitHub, refresh your local install:
    /plugin install personal-skills@personal-skills-marketplace
    ```
 
-3. Confirm the installed version in Claude Code's plugin list (should match [`plugin.json`](plugins/personal-skills/.claude-plugin/plugin.json), currently **1.4.0**).
+3. Confirm the installed version in Claude Code's plugin list (should match [`plugin.json`](plugins/personal-skills/.claude-plugin/plugin.json), currently **1.4.1**).
 
 Your user config at `~/.config/personal-skills/pr-monitor/sources.yaml` is **not** overwritten by plugin updates — only the bundled example template in the plugin cache changes.
 
